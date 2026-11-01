@@ -1,0 +1,72 @@
+{
+  "entities": {
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Financial transaction record representing income or expense in the cash ledger",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique transaction ID" },
+        "userId": { "type": "string", "description": "UID of the admin owner" },
+        "type": { "type": "string", "enum": ["INCOME", "EXPENSE"], "description": "Type of transaction" },
+        "title": { "type": "string", "description": "Title or source or recipient of money" },
+        "amount": { "type": "integer", "description": "Monetary amount in standard unit" },
+        "category": { "type": "string", "description": "Category of income or expense" },
+        "date": { "type": "string", "description": "Date formatted as YYYY-MM-DD" },
+        "description": { "type": "string", "description": "Additional notes or description" },
+        "paymentMethod": { "type": "string", "description": "Payment method used (e.g. Tunai, Transfer)" },
+        "receiptUrl": { "type": "string", "description": "Receipt image URL or local storage path" },
+        "status": { "type": "string", "enum": ["ACTIVE", "VOID"], "description": "Status of transaction" },
+        "voidReason": { "type": "string", "description": "Reason given if transaction was voided" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp via serverTimestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Update timestamp via serverTimestamp" }
+      },
+      "required": ["userId", "type", "title", "amount", "category", "date", "status", "createdAt"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Cashbook configuration profile, currency, language, and initial balance",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Admin UID" },
+        "groupName": { "type": "string", "description": "Group or organization name" },
+        "adminName": { "type": "string", "description": "Admin display name" },
+        "initialBalance": { "type": "integer", "description": "Opening cash balance" },
+        "currencyCode": { "type": "string", "description": "ISO 4217 currency code" },
+        "language": { "type": "string", "description": "Selected language code (id or en)" },
+        "themeMode": { "type": "string", "description": "SYSTEM, LIGHT, or DARK theme" },
+        "logoUrl": { "type": "string", "description": "Optional group logo URL" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last settings update timestamp" }
+      },
+      "required": ["userId", "groupName", "initialBalance", "currencyCode", "language"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable audit trail record of cash ledger mutations and voids",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique audit log ID" },
+        "userId": { "type": "string", "description": "Admin UID" },
+        "transactionId": { "type": "string", "description": "Associated transaction ID" },
+        "action": { "type": "string", "enum": ["CREATE", "UPDATE", "VOID"], "description": "Action performed" },
+        "details": { "type": "string", "description": "Summary of changes made" },
+        "reason": { "type": "string", "description": "Reason for change or cancellation" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Log creation timestamp" }
+      },
+      "required": ["userId", "transactionId", "action", "details", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "Cash ledger transactions belonging to the authenticated admin"
+    },
+    "/users/{userId}/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/Settings" },
+      "description": "Application settings and organization profile for the admin"
+    },
+    "/users/{userId}/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Audit trail records for transaction changes and cancellations"
+    }
+  }
+}

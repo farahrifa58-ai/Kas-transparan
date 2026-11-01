@@ -1,0 +1,6 @@
+{
+  "name": "Kas Transparan",
+  "description": "Aplikasi pengelolaan keuangan kas modern, transparan, dan terstruktur dengan fitur laporan PDF dan berbagi WhatsApp.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

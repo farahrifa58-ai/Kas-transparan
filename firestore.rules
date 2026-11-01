@@ -1,0 +1,106 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidTransaction(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.type in ['INCOME', 'EXPENSE'] &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+             data.amount is int && data.amount >= 0 &&
+             data.category is string && data.category.size() >= 1 && data.category.size() <= 100 &&
+             data.date is string && data.date.size() == 10 &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 1000)) &&
+             (!('paymentMethod' in data) || (data.paymentMethod is string && data.paymentMethod.size() <= 100)) &&
+             (!('receiptUrl' in data) || (data.receiptUrl is string && data.receiptUrl.size() <= 2000)) &&
+             data.status in ['ACTIVE', 'VOID'] &&
+             (!('voidReason' in data) || (data.voidReason is string && data.voidReason.size() <= 500));
+    }
+
+    function isValidSettings(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.groupName is string && data.groupName.size() >= 1 && data.groupName.size() <= 200 &&
+             (!('adminName' in data) || (data.adminName is string && data.adminName.size() <= 100)) &&
+             data.initialBalance is int &&
+             data.currencyCode is string && data.currencyCode.size() >= 3 && data.currencyCode.size() <= 5 &&
+             data.language in ['id', 'en'] &&
+             (!('themeMode' in data) || data.themeMode in ['SYSTEM', 'LIGHT', 'DARK']) &&
+             (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 2000));
+    }
+
+    function isValidAuditLog(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.transactionId is string && data.transactionId.size() <= 128 &&
+             data.action in ['CREATE', 'UPDATE', 'VOID'] &&
+             data.details is string && data.details.size() <= 2000 &&
+             (!('reason' in data) || (data.reason is string && data.reason.size() <= 500));
+    }
+
+    match /users/{userId} {
+      allow get, list: if isOwner(userId);
+      allow create, update: if isOwner(userId) && incoming().userId == request.auth.uid;
+      allow delete: if false;
+
+      match /settings/{settingId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+                         isValidId(settingId) &&
+                         isValidSettings(incoming());
+        allow update: if isOwner(userId) &&
+                         isValidId(settingId) &&
+                         isValidSettings(incoming()) &&
+                         incoming().userId == existing().userId;
+        allow delete: if false;
+      }
+
+      match /transactions/{transactionId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+                         isValidId(transactionId) &&
+                         isValidTransaction(incoming()) &&
+                         incoming().createdAt is timestamp &&
+                         incoming().createdAt <= request.time;
+        allow update: if isOwner(userId) &&
+                         isValidId(transactionId) &&
+                         isValidTransaction(incoming()) &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().userId == existing().userId;
+        allow delete: if isOwner(userId);
+      }
+
+      match /audit_logs/{logId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+                         isValidId(logId) &&
+                         isValidAuditLog(incoming()) &&
+                         incoming().createdAt is timestamp &&
+                         incoming().createdAt <= request.time;
+        allow update, delete: if false;
+      }
+    }
+  }
+}
