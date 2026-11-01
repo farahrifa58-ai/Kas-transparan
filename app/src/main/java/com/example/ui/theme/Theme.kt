@@ -18,7 +18,7 @@ private val DarkColorScheme = darkColorScheme(
     surface = AppSurfaceDark,
     onBackground = Color(0xFFE2E3DE),
     onSurface = Color(0xFFE2E3DE),
-    error = Color(0xFFFFB4AB),
+    error = ExpenseRedDark,
     onError = Color(0xFF690005)
 )
 
@@ -33,7 +33,7 @@ private val LightColorScheme = lightColorScheme(
     surface = AppSurfaceLight,
     onBackground = Color(0xFF191C19),
     onSurface = Color(0xFF191C19),
-    error = ExpenseRed,
+    error = ExpenseRedLight,
     onError = Color.White
 )
 

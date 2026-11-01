@@ -1,5 +1,8 @@
 package com.example.ui.theme
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
@@ -17,9 +20,33 @@ val TealOnSecondaryContainer = Color(0xFF00201C)
 val AmberTertiary = Color(0xFFE65100)
 val AmberOnTertiary = Color(0xFFFFFFFF)
 
-val IncomeGreen = Color(0xFF2E7D32)
-val ExpenseRed = Color(0xFFC62828)
-val VoidGrey = Color(0xFF757575)
+// Income & Expense in Light Mode
+val IncomeGreenLight = Color(0xFF2E7D32)
+val ExpenseRedLight = Color(0xFFC62828)
+
+// Income & Expense in Dark Mode:
+// User requested: "jangan terlalu tebal, agak tipis tapi gak tipis tipis banget, biar gak terlalu kontras"
+// Soft, calm, gentle emerald-mint & warm coral-rose, soothing to look at on dark background without losing clarity.
+val IncomeGreenDark = Color(0xFF5DB874) // soft mint-emerald green
+val ExpenseRedDark = Color(0xFFE06D6D)   // soft warm rose-coral red
+
+val VoidGreyLight = Color(0xFF757575)
+val VoidGreyDark = Color(0xFF90A4AE)
+
+val VoidGrey: Color
+    @Composable
+    @ReadOnlyComposable
+    get() = if (MaterialTheme.colorScheme.background == AppBackgroundLight) VoidGreyLight else VoidGreyDark
+
+val IncomeGreen: Color
+    @Composable
+    @ReadOnlyComposable
+    get() = if (MaterialTheme.colorScheme.background == AppBackgroundLight) IncomeGreenLight else IncomeGreenDark
+
+val ExpenseRed: Color
+    @Composable
+    @ReadOnlyComposable
+    get() = if (MaterialTheme.colorScheme.background == AppBackgroundLight) ExpenseRedLight else ExpenseRedDark
 
 // Requested Light Background: Soft light sky blue on top blending down to pure white
 val LightBgTopBlue = Color(0xFFE3F2FD) // Soft subtle light blue
@@ -39,10 +66,10 @@ val AppBackgroundLight = Color(0xFFFFFFFF)
 val AppSurfaceLight = Color(0xFFFFFFFF)
 val AppCardLight = Color(0xFFFFFFFF)
 
-// Dark Colors
-val EmeraldGreenPrimaryDark = Color(0xFF81C784)
+// Dark Colors (calibrated to be pleasant, balanced and non-jarring)
+val EmeraldGreenPrimaryDark = Color(0xFF6EBE84)
 val EmeraldGreenOnPrimaryDark = Color(0xFF00390F)
-val EmeraldGreenPrimaryContainerDark = Color(0xFF00531A)
+val EmeraldGreenPrimaryContainerDark = Color(0xFF1B3D23)
 val EmeraldGreenOnPrimaryContainerDark = Color(0xFFA5D6A7)
 
 val TealSecondaryDark = Color(0xFF80CBC4)

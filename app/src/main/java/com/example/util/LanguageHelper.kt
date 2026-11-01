@@ -108,6 +108,7 @@ object LanguageHelper {
 
             // Settings
             "settings_title" -> if (isId) "Pengaturan" else "Settings"
+            "btn_save_settings" -> if (isId) "Simpan" else "Save"
             "profile_section" -> if (isId) "Profil Kelompok & Admin" else "Organization & Admin Profile"
             "group_name" -> if (isId) "Nama Kelompok / Organisasi" else "Group / Organization Name"
             "admin_name" -> if (isId) "Nama Admin" else "Admin Name"

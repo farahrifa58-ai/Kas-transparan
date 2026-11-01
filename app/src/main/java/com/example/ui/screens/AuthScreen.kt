@@ -75,10 +75,7 @@ fun AuthScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .then(
-                if (isLight) Modifier.background(SoftSkyBlueGradient)
-                else Modifier.background(MaterialTheme.colorScheme.background)
-            )
+            .background(SoftSkyBlueGradient)
             .padding(20.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -103,28 +100,33 @@ fun AuthScreen(
                     painter = painterResource(id = R.drawable.app_custom_logo),
                     contentDescription = "Kas Transparan Logo",
                     modifier = Modifier
-                        .size(90.dp)
-                        .clip(RoundedCornerShape(20.dp))
+                        .size(96.dp)
+                        .clip(RoundedCornerShape(22.dp))
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
                 Text(
-                    text = "KAS TRANSPARAN",
+                    text = "Kas Transparan",
                     style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.5.sp
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.5.sp,
+                        fontSize = 26.sp
                     ),
-                    color = MaterialTheme.colorScheme.primary
+                    color = Color(0xFF1B5E20)
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = "Aplikasi Pengelolaan Kas Modern & Transparan",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = "by Rafline Dev",
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp,
+                        letterSpacing = 0.5.sp
+                    ),
                     textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = Color(0xFF455A64)
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))
@@ -228,9 +230,15 @@ fun onGoogleSignInClicked(
     scope: CoroutineScope,
     onAuthCancelled: () -> Unit = {}
 ) {
-    val clientId = try {
-        context.getString(R.string.default_web_client_id)
-    } catch (e: Exception) {
+    val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+    val clientId = if (resId != 0) {
+        try {
+            context.getString(resId)
+        } catch (e: Exception) {
+            onAuthError("Google Sign-In configuration missing: default_web_client_id not found")
+            return
+        }
+    } else {
         onAuthError("Google Sign-In configuration missing: default_web_client_id not found")
         return
     }

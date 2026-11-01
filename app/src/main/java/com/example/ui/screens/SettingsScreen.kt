@@ -63,8 +63,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.KasUiState
@@ -97,7 +99,13 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(LanguageHelper.getString("settings_title", selectedLanguage)) },
+                title = {
+                    Text(
+                        text = LanguageHelper.getString("settings_title", selectedLanguage),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -125,11 +133,15 @@ fun SettingsScreen(
                         },
                         modifier = Modifier
                             .padding(end = 8.dp)
-                            .testTag("save_settings_button")
+                            .testTag("save_settings_button"),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                     ) {
                         Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(LanguageHelper.getString("btn_save", selectedLanguage))
+                        Text(
+                            text = LanguageHelper.getString("btn_save_settings", selectedLanguage),
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

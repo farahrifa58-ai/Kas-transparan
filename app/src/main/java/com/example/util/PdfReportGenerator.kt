@@ -117,6 +117,19 @@ object PdfReportGenerator {
             y += 70f
         }
 
+        fun truncateText(p: Paint, text: String, maxWidth: Float): String {
+            if (p.measureText(text) <= maxWidth) return text
+            val ellipsis = "..."
+            val ellipsisWidth = p.measureText(ellipsis)
+            val available = maxWidth - ellipsisWidth
+            if (available <= 0f) return ellipsis
+            var count = text.length
+            while (count > 0 && p.measureText(text.substring(0, count)) > available) {
+                count--
+            }
+            return text.substring(0, count) + ellipsis
+        }
+
         fun drawTableHeader() {
             paint.color = Color.parseColor("#E8F5E9")
             canvas.drawRect(30f, y, (pageWidth - 30).toFloat(), y + 20f, paint)
@@ -128,10 +141,14 @@ object PdfReportGenerator {
             val hAmount = if (isEn) "Amount" else "Nominal"
 
             canvas.drawText(hDate, 35f, y + 14f, boldPaint)
-            canvas.drawText(hType, 125f, y + 14f, boldPaint)
-            canvas.drawText(hTitle, 175f, y + 14f, boldPaint)
-            canvas.drawText(hCategory, 335f, y + 14f, boldPaint)
-            canvas.drawText(hAmount, 470f, y + 14f, boldPaint)
+            canvas.drawText(hType, 120f, y + 14f, boldPaint)
+            canvas.drawText(hTitle, 170f, y + 14f, boldPaint)
+            canvas.drawText(hCategory, 345f, y + 14f, boldPaint)
+
+            boldPaint.textAlign = Paint.Align.RIGHT
+            canvas.drawText(hAmount, 560f, y + 14f, boldPaint)
+            boldPaint.textAlign = Paint.Align.LEFT
+
             y += 24f
         }
 
@@ -158,37 +175,43 @@ object PdfReportGenerator {
             val inputTimeStr = tx.createdAt?.toDate()?.let { timeFormat.format(it) } ?: ""
             val dateTimeDisplay = if (inputTimeStr.isNotBlank()) "${tx.date} ($inputTimeStr)" else tx.date
             textPaint.textSize = 8.5f
-            canvas.drawText(dateTimeDisplay, 35f, y, textPaint)
+            val safeDate = truncateText(textPaint, dateTimeDisplay, 80f)
+            canvas.drawText(safeDate, 35f, y, textPaint)
 
             // Col 2: Type badge
             boldPaint.color = if (isIncome) Color.parseColor("#2E7D32") else Color.parseColor("#C62828")
             val typeText = if (isIncome) (if (isEn) "INCOME" else "MASUK") else (if (isEn) "EXPENSE" else "KELUAR")
-            canvas.drawText(typeText, 125f, y, boldPaint)
+            canvas.drawText(typeText, 120f, y, boldPaint)
             boldPaint.color = Color.BLACK
 
             // Col 3: Title (line 1) & Notes/Keterangan (line 2)
-            val truncatedTitle = if (tx.title.length > 28) tx.title.take(26) + "..." else tx.title
-            canvas.drawText(truncatedTitle, 175f, y, boldPaint)
+            val safeTitle = truncateText(boldPaint, tx.title, 165f)
+            canvas.drawText(safeTitle, 170f, y, boldPaint)
             if (tx.description.isNotBlank()) {
-                val truncatedDesc = if (tx.description.length > 36) tx.description.take(34) + "..." else tx.description
-                canvas.drawText("Catatan: $truncatedDesc", 175f, y + 10f, notePaint)
+                val notePrefix = if (isEn) "Note: " else "Catatan: "
+                val fullNote = "$notePrefix${tx.description}"
+                val safeNote = truncateText(notePaint, fullNote, 165f)
+                canvas.drawText(safeNote, 170f, y + 10.5f, notePaint)
             }
 
             // Col 4: Category & Payment Method
-            val catText = if (tx.category.length > 20) tx.category.take(18) + "..." else tx.category
-            canvas.drawText(catText, 335f, y, textPaint)
+            val safeCat = truncateText(textPaint, tx.category, 105f)
+            canvas.drawText(safeCat, 345f, y, textPaint)
             if (tx.paymentMethod.isNotBlank()) {
-                canvas.drawText("[${tx.paymentMethod}]", 335f, y + 10f, notePaint)
+                val safeMethod = truncateText(notePaint, "[${tx.paymentMethod}]", 105f)
+                canvas.drawText(safeMethod, 345f, y + 10.5f, notePaint)
             }
 
-            // Col 5: Amount
+            // Col 5: Amount (Right aligned)
             val amountFormatted = (if (isIncome) "+ " else "- ") + CurrencyHelper.format(tx.amount, settings.currencyCode)
             boldPaint.color = if (isIncome) Color.parseColor("#2E7D32") else Color.parseColor("#C62828")
-            canvas.drawText(amountFormatted, 470f, y, boldPaint)
+            boldPaint.textAlign = Paint.Align.RIGHT
+            canvas.drawText(amountFormatted, 560f, y, boldPaint)
+            boldPaint.textAlign = Paint.Align.LEFT
             boldPaint.color = Color.BLACK
 
             // Separator line
-            val rowHeight = if (tx.description.isNotBlank() || tx.paymentMethod.isNotBlank()) 24f else 18f
+            val rowHeight = if (tx.description.isNotBlank() || tx.paymentMethod.isNotBlank()) 25f else 18f
             paint.color = Color.parseColor("#E0E0E0")
             paint.strokeWidth = 0.5f
             canvas.drawLine(30f, y + rowHeight - 6f, (pageWidth - 30).toFloat(), y + rowHeight - 6f, paint)

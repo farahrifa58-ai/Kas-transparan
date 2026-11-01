@@ -20,6 +20,9 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
 
+import org.junit.Assume
+import java.net.Socket
+
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE)
 @LooperMode(LooperMode.Mode.INSTRUMENTATION_TEST)
@@ -31,6 +34,13 @@ abstract class FirestoreEmulatorTestBase {
 
     @Before
     open fun setUpFirebase() {
+        val emulatorAvailable = try {
+            Socket(EMULATOR_HOST, FIRESTORE_PORT).use { true }
+        } catch (_: Exception) {
+            false
+        }
+        Assume.assumeTrue("Firestore emulator not running on $EMULATOR_HOST:$FIRESTORE_PORT", emulatorAvailable)
+
         val context = ApplicationProvider.getApplicationContext<Context>()
         val resId = context.resources.getIdentifier("firestore_database_id", "string", context.packageName)
         databaseId = if (resId != 0) context.getString(resId) else "ai-studio-android-kastrans-4b596ba0-945d-481b-ab04-73bc1494adeb"
@@ -63,7 +73,9 @@ abstract class FirestoreEmulatorTestBase {
 
     @After
     open fun tearDownFirebase() {
-        auth.signOut()
+        if (::auth.isInitialized) {
+            auth.signOut()
+        }
     }
 
     protected suspend fun signInTestUser(email: String): String = withContext(Dispatchers.IO) {

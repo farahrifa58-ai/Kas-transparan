@@ -61,16 +61,56 @@ import com.example.ui.screens.signOutAdmin
 import com.example.ui.theme.KasTransparanTheme
 import com.example.util.LanguageHelper
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
+
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
+import com.example.ui.theme.SoftSkyBlueGradient
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (FirebaseApp.getApps(this).isEmpty()) {
+            FirebaseApp.initializeApp(this)
+        }
         enableEdgeToEdge()
 
         setContent {
-            var currentUser by remember { mutableStateOf(Firebase.auth.currentUser) }
+            var isSplashVisible by remember { mutableStateOf(true) }
+            LaunchedEffect(Unit) {
+                delay(2000L)
+                isSplashVisible = false
+            }
+
+            var currentUser by remember {
+                mutableStateOf<FirebaseUser?>(
+                    try {
+                        Firebase.auth.currentUser
+                    } catch (e: Exception) {
+                        null
+                    }
+                )
+            }
 
             DisposableEffect(Unit) {
                 val listener = FirebaseAuth.AuthStateListener { auth ->
@@ -82,21 +122,86 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // Outer theme wrapper default
             KasTransparanTheme(themeMode = "SYSTEM") {
-                if (currentUser == null) {
-                    AuthScreen(onAuthSuccess = {
-                        currentUser = Firebase.auth.currentUser
-                    })
-                } else {
-                    AppMainContent(
-                        userId = currentUser!!.uid,
-                        onSignOut = {
-                            currentUser = null
+                AnimatedContent(
+                    targetState = isSplashVisible,
+                    transitionSpec = {
+                        fadeIn(animationSpec = tween(400)) togetherWith fadeOut(animationSpec = tween(400))
+                    },
+                    label = "splash_transition"
+                ) { showingSplash ->
+                    if (showingSplash) {
+                        SplashScreen()
+                    } else {
+                        if (currentUser == null) {
+                            AuthScreen(onAuthSuccess = {
+                                currentUser = Firebase.auth.currentUser
+                            })
+                        } else {
+                            AppMainContent(
+                                userId = currentUser!!.uid,
+                                onSignOut = {
+                                    currentUser = null
+                                }
+                            )
                         }
-                    )
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun SplashScreen() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(SoftSkyBlueGradient),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Card(
+                shape = RoundedCornerShape(26.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White)
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.app_custom_logo),
+                    contentDescription = "Logo Kas Transparan",
+                    modifier = Modifier
+                        .size(110.dp)
+                        .clip(RoundedCornerShape(26.dp))
+                )
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+
+            Text(
+                text = "Kas Transparan",
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 0.5.sp,
+                    fontSize = 26.sp
+                ),
+                color = Color(0xFF1B5E20)
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = "by Rafline Dev",
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.5.sp,
+                    fontSize = 15.sp
+                ),
+                color = Color(0xFF455A64)
+            )
         }
     }
 }
