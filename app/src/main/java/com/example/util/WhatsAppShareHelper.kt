@@ -8,6 +8,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.example.data.model.AppSettings
+import com.example.data.model.Transaction
 import java.io.File
 
 object WhatsAppShareHelper {
@@ -113,4 +114,83 @@ object WhatsAppShareHelper {
             Toast.makeText(context, "Gagal membagikan laporan: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
         }
     }
+
+    fun generateTransactionShareText(
+        settings: AppSettings,
+        tx: Transaction
+    ): String {
+        val curr = settings.currencyCode
+        val isEn = settings.language.equals("en", ignoreCase = true)
+        val isIncome = tx.type == "INCOME"
+        val statusStr = if (tx.status == "VOID") (if (isEn) " [VOIDED]" else " [DIBATALKAN]") else ""
+
+        return if (isEn) {
+            """
+            *TRANSACTION RECEIPT$statusStr*
+            ${settings.groupName.ifBlank { "Kas Transparan" }}
+            
+            Type: ${if (isIncome) "Income" else "Expense"}
+            Title: ${tx.title}
+            Amount: ${if (isIncome) "+" else "-"} ${CurrencyHelper.format(tx.amount, curr)}
+            Date: ${tx.date}
+            Category: ${tx.category}
+            Payment: ${tx.paymentMethod.ifBlank { "Cash" }}
+            ${if (tx.description.isNotBlank()) "Note: ${tx.description}\n" else ""}${if (tx.status == "VOID" && tx.voidReason.isNotBlank()) "Void Reason: ${tx.voidReason}\n" else ""}
+            Admin: ${settings.adminName.ifBlank { "Admin" }}
+            """.trimIndent()
+        } else {
+            """
+            *BUKTI TRANSAKSI KAS$statusStr*
+            ${settings.groupName.ifBlank { "Kas Transparan" }}
+            
+            Jenis: ${if (isIncome) "Kas Masuk" else "Kas Keluar"}
+            Judul: ${tx.title}
+            Nominal: ${if (isIncome) "+" else "-"} ${CurrencyHelper.format(tx.amount, curr)}
+            Tanggal: ${tx.date}
+            Kategori: ${tx.category}
+            Metode: ${tx.paymentMethod.ifBlank { "Tunai" }}
+            ${if (tx.description.isNotBlank()) "Catatan: ${tx.description}\n" else ""}${if (tx.status == "VOID" && tx.voidReason.isNotBlank()) "Alasan Batal: ${tx.voidReason}\n" else ""}
+            Pengelola: ${settings.adminName.ifBlank { "Admin" }}
+            """.trimIndent()
+        }
+    }
+
+    fun shareFile(
+        context: Context,
+        file: File,
+        mimeType: String,
+        subject: String,
+        captionText: String = ""
+    ) {
+        try {
+            val uri: Uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = mimeType
+                putExtra(Intent.EXTRA_SUBJECT, subject)
+                if (captionText.isNotBlank()) {
+                    putExtra(Intent.EXTRA_TEXT, captionText)
+                }
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+
+            if (captionText.isNotBlank()) {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("Bukti Transaksi", captionText)
+                clipboard.setPrimaryClip(clip)
+            }
+
+            val chooser = Intent.createChooser(intent, "Bagikan ke...")
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(chooser)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Gagal membagikan berkas: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+        }
+    }
 }
+

@@ -29,9 +29,12 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -71,8 +74,13 @@ import com.example.ui.KasViewModel
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
 import com.example.ui.theme.SoftSkyBlueGradient
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 import com.example.util.CurrencyHelper
 import com.example.util.LanguageHelper
+import com.example.util.PdfReportGenerator
+import com.example.util.ReportImageGenerator
+import com.example.util.WhatsAppShareHelper
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -88,6 +96,7 @@ fun HistoryScreen(
     var selectedTxForDetail by remember { mutableStateOf<Transaction?>(null) }
     var selectedTxForEdit by remember { mutableStateOf<Transaction?>(null) }
     var selectedTxForVoid by remember { mutableStateOf<Transaction?>(null) }
+    var selectedTxForShare by remember { mutableStateOf<Transaction?>(null) }
     var showAuditLogsDialog by remember { mutableStateOf(false) }
 
     val filteredList = remember(
@@ -267,7 +276,8 @@ fun HistoryScreen(
                         HistoryItemCard(
                             tx = tx,
                             currencyCode = curr,
-                            onClick = { selectedTxForDetail = tx }
+                            onClick = { selectedTxForDetail = tx },
+                            onShare = { selectedTxForShare = tx }
                         )
                     }
                     item {
@@ -292,7 +302,19 @@ fun HistoryScreen(
             onVoid = {
                 selectedTxForDetail = null
                 selectedTxForVoid = tx
+            },
+            onShare = {
+                selectedTxForShare = tx
             }
+        )
+    }
+
+    // Share Options Dialog (PDF / Image)
+    selectedTxForShare?.let { tx ->
+        ShareTransactionOptionsDialog(
+            tx = tx,
+            settings = state.settings,
+            onDismiss = { selectedTxForShare = null }
         )
     }
 
@@ -339,7 +361,8 @@ fun HistoryScreen(
 fun HistoryItemCard(
     tx: Transaction,
     currencyCode: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onShare: () -> Unit = {}
 ) {
     val isIncome = tx.type == "INCOME"
     val isVoid = tx.status == "VOID"
@@ -415,7 +438,10 @@ fun HistoryItemCard(
                 }
             }
 
-            Column(horizontalAlignment = Alignment.End) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.Center
+            ) {
                 Text(
                     text = (if (isIncome) "+ " else "- ") + CurrencyHelper.format(tx.amount, currencyCode),
                     style = MaterialTheme.typography.titleSmall.copy(
@@ -432,6 +458,20 @@ fun HistoryItemCard(
                         color = Color.Gray
                     )
                 }
+                Spacer(modifier = Modifier.height(2.dp))
+                IconButton(
+                    onClick = onShare,
+                    modifier = Modifier
+                        .size(32.dp)
+                        .testTag("btn_share_tx_${tx.id}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = "Bagikan Bukti",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
     }
@@ -444,7 +484,8 @@ fun TransactionDetailDialog(
     lang: String,
     onDismiss: () -> Unit,
     onEdit: () -> Unit,
-    onVoid: () -> Unit
+    onVoid: () -> Unit,
+    onShare: () -> Unit
 ) {
     val isIncome = tx.type == "INCOME"
     val isVoid = tx.status == "VOID"
@@ -461,8 +502,18 @@ fun TransactionDetailDialog(
             }
         },
         dismissButton = {
-            if (!isVoid) {
-                Row {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(
+                    onClick = onShare,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.padding(end = 8.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(if (isEn) "Share" else "Bagikan", maxLines = 1)
+                }
+                if (!isVoid) {
                     OutlinedButton(
                         onClick = onEdit,
                         shape = RoundedCornerShape(8.dp),
@@ -816,4 +867,177 @@ private fun DetailRow(
         )
     }
 }
+
+@Composable
+fun ShareTransactionOptionsDialog(
+    tx: Transaction,
+    settings: com.example.data.model.AppSettings,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val lang = settings.language
+    val isIncome = tx.type == "INCOME"
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Share,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = LanguageHelper.getString("share_tx_title", lang),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = tx.title,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "${if (isIncome) "+ " else "- "}${CurrencyHelper.format(tx.amount, settings.currencyCode)} • ${tx.date}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isIncome) IncomeGreen else ExpenseRed
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Option 1: PDF Document
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            try {
+                                val pdfFile = PdfReportGenerator.generateTransactionPdf(context, settings, tx)
+                                val shareText = WhatsAppShareHelper.generateTransactionShareText(settings, tx)
+                                WhatsAppShareHelper.shareFile(
+                                    context = context,
+                                    file = pdfFile,
+                                    mimeType = "application/pdf",
+                                    subject = "Bukti Transaksi - ${tx.title}",
+                                    captionText = shareText
+                                )
+                                onDismiss()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Gagal membuat PDF: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        .testTag("btn_share_tx_pdf"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Description,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = LanguageHelper.getString("share_pdf_title", lang),
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = LanguageHelper.getString("share_pdf_desc", lang),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // Option 2: Image PNG Receipt
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            try {
+                                val imageFile = ReportImageGenerator.saveTransactionReceiptImage(context, settings, tx)
+                                val shareText = WhatsAppShareHelper.generateTransactionShareText(settings, tx)
+                                WhatsAppShareHelper.shareFile(
+                                    context = context,
+                                    file = imageFile,
+                                    mimeType = "image/png",
+                                    subject = "Struk Transaksi - ${tx.title}",
+                                    captionText = shareText
+                                )
+                                onDismiss()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Gagal membuat Gambar: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        .testTag("btn_share_tx_image"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(IncomeGreen.copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Image,
+                                contentDescription = null,
+                                tint = IncomeGreen,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = LanguageHelper.getString("share_image_title", lang),
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = LanguageHelper.getString("share_image_desc", lang),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(LanguageHelper.getString("btn_close", lang))
+            }
+        }
+    )
+}
+
 

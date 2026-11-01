@@ -123,7 +123,7 @@ object LanguageHelper {
             "about_section" -> if (isId) "Tentang Aplikasi" else "About Application"
             "btn_open" -> if (isId) "Buka" else "Open"
             "app_version" -> if (isId) "Versi 1.0.0" else "Version 1.0.0"
-            "developer" -> if (isId) "Pengembang: Kas Transparan Team" else "Developer: Kas Transparan Team"
+            "developer" -> if (isId) "Pengembang: Rafline Dev" else "Developer: Rafline Dev"
             "platform" -> if (isId) "Platform: Android (Jetpack Compose)" else "Platform: Android (Jetpack Compose)"
             "copyright" -> if (isId) "© 2026 Kas Transparan. Hak Cipta Dilindungi." else "© 2026 Kas Transparan. All rights reserved."
             "app_desc" -> if (isId)
@@ -131,6 +131,11 @@ object LanguageHelper {
             else
                 "A modern, simple, transparent, and easy-to-use cash management application for community and organizational financial accountability."
             "btn_sign_out" -> if (isId) "Keluar (Sign Out)" else "Sign Out"
+            "share_tx_title" -> if (isId) "Bagikan Bukti Transaksi" else "Share Transaction Receipt"
+            "share_pdf_title" -> if (isId) "Dokumen PDF (.pdf)" else "PDF Document (.pdf)"
+            "share_pdf_desc" -> if (isId) "Bukti kuitansi transaksi resmi format PDF" else "Official transaction receipt in PDF format"
+            "share_image_title" -> if (isId) "Gambar Struk (.png)" else "Receipt Image (.png)"
+            "share_image_desc" -> if (isId) "Kuitansi visual untuk WhatsApp & media sosial" else "Visual receipt image for WhatsApp & social media"
 
             // Auth Screen
             "auth_card_desc" -> if (isId) "Akses Khusus Admin Kas\nSilakan masuk dengan Akun Google Admin untuk mengelola keuangan kas." else "Admin Cash Access Only\nPlease sign in with your Admin Google Account to manage the cashbook."

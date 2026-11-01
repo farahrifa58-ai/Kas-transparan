@@ -246,4 +246,157 @@ object PdfReportGenerator {
 
         return file
     }
+
+    fun generateTransactionPdf(
+        context: Context,
+        settings: AppSettings,
+        tx: Transaction
+    ): File {
+        val pdfDir = File(context.cacheDir, "reports")
+        if (!pdfDir.exists()) pdfDir.mkdirs()
+        val file = File(pdfDir, "Bukti_Transaksi_${tx.id.take(8)}_${System.currentTimeMillis()}.pdf")
+
+        val document = PdfDocument()
+        val pageWidth = 420
+        val pageHeight = 595
+        val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create()
+        val page = document.startPage(pageInfo)
+        val canvas = page.canvas
+
+        val isEn = settings.language.equals("en", ignoreCase = true)
+        val isIncome = tx.type == "INCOME"
+        val isVoid = tx.status == "VOID"
+
+        val timeFormat = SimpleDateFormat("dd MMMM yyyy HH:mm", if (isEn) Locale.ENGLISH else Locale("id", "ID"))
+        val dateCreatedStr = tx.createdAt?.toDate()?.let { timeFormat.format(it) } ?: tx.date
+
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val headerColor = Color.parseColor("#1B5E20")
+        val typeColor = if (isIncome) Color.parseColor("#2E7D32") else Color.parseColor("#C62828")
+
+        // Top accent header
+        paint.color = headerColor
+        canvas.drawRect(24f, 24f, (pageWidth - 24).toFloat(), 28f, paint)
+
+        // Title
+        val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = headerColor
+            textSize = 15f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        canvas.drawText("KAS TRANSPARAN", 28f, 50f, titlePaint)
+
+        val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.DKGRAY
+            textSize = 10f
+        }
+        canvas.drawText(settings.groupName.ifBlank { "Kelompok / Organisasi" }, 28f, 65f, subPaint)
+
+        val receiptTitle = if (isIncome) (if (isEn) "CASH IN RECEIPT" else "BUKTI KAS MASUK")
+                           else (if (isEn) "CASH OUT RECEIPT" else "BUKTI KAS KELUAR")
+        val receiptPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = typeColor
+            textSize = 12f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.RIGHT
+        }
+        canvas.drawText(receiptTitle, (pageWidth - 28).toFloat(), 50f, receiptPaint)
+
+        if (isVoid) {
+            val voidPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.RED
+                textSize = 9f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textAlign = Paint.Align.RIGHT
+            }
+            canvas.drawText("[DIBATALKAN / VOID]", (pageWidth - 28).toFloat(), 65f, voidPaint)
+        }
+
+        // Amount Box Container
+        paint.color = Color.parseColor("#F9FBF9")
+        paint.style = Paint.Style.FILL
+        canvas.drawRoundRect(24f, 80f, (pageWidth - 24).toFloat(), 155f, 8f, 8f, paint)
+
+        paint.color = Color.parseColor("#E0E0E0")
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1f
+        canvas.drawRoundRect(24f, 80f, (pageWidth - 24).toFloat(), 155f, 8f, 8f, paint)
+        paint.style = Paint.Style.FILL
+
+        val amountLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.GRAY
+            textSize = 9.5f
+        }
+        canvas.drawText(if (isEn) "Total Amount:" else "Nominal Transaksi:", 38f, 104f, amountLabelPaint)
+
+        val amountValPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = typeColor
+            textSize = 22f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        val prefix = if (isIncome) "+ " else "- "
+        canvas.drawText(prefix + CurrencyHelper.format(tx.amount, settings.currencyCode), 38f, 134f, amountValPaint)
+
+        // Details Table
+        var curY = 180f
+        val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.DKGRAY
+            textSize = 9.5f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        }
+        val valuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 9.5f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+
+        fun drawRow(label: String, value: String) {
+            canvas.drawText(label, 30f, curY, labelPaint)
+            val cleanValue = if (value.length > 38) value.take(36) + "..." else value
+            canvas.drawText(cleanValue, 140f, curY, valuePaint)
+            curY += 19f
+        }
+
+        drawRow(if (isEn) "Transaction ID" else "No. Transaksi", tx.id.take(16))
+        drawRow(if (isEn) "Date & Time" else "Tanggal & Waktu", dateCreatedStr)
+        drawRow(if (isEn) "Title / Payee" else "Judul / Sumber", tx.title)
+        drawRow(if (isEn) "Category" else "Kategori", tx.category)
+        drawRow(if (isEn) "Payment Method" else "Metode Pembayaran", tx.paymentMethod.ifBlank { "Tunai" })
+        if (tx.description.isNotBlank()) {
+            drawRow(if (isEn) "Notes" else "Catatan", tx.description)
+        }
+        if (isVoid && tx.voidReason.isNotBlank()) {
+            drawRow(if (isEn) "Void Reason" else "Alasan Batal", tx.voidReason)
+        }
+
+        // Line separator
+        curY += 10f
+        paint.color = Color.parseColor("#E0E0E0")
+        paint.strokeWidth = 0.8f
+        canvas.drawLine(24f, curY, (pageWidth - 24).toFloat(), curY, paint)
+
+        // Signatures / Footer
+        curY += 28f
+        canvas.drawText(if (isEn) "Cash Manager / Admin:" else "Pengelola Kas / Admin:", (pageWidth - 170).toFloat(), curY, labelPaint)
+        curY += 34f
+        canvas.drawText(settings.adminName.ifBlank { "Administrator" }, (pageWidth - 170).toFloat(), curY, valuePaint)
+
+        // Watermark footer
+        val footerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.GRAY
+            textSize = 8f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText("Dibuat otomatis oleh Kas Transparan by Rafline Dev", (pageWidth / 2).toFloat(), (pageHeight - 20).toFloat(), footerPaint)
+
+        document.finishPage(page)
+
+        FileOutputStream(file).use { out ->
+            document.writeTo(out)
+        }
+        document.close()
+
+        return file
+    }
 }

@@ -350,4 +350,208 @@ object ReportImageGenerator {
         chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(chooser)
     }
+
+    fun generateTransactionReceiptBitmap(
+        settings: AppSettings,
+        tx: Transaction
+    ): Bitmap {
+        val width = 800
+        val height = 1000
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        val isIncome = tx.type == "INCOME"
+        val isVoid = tx.status == "VOID"
+        val curr = settings.currencyCode
+
+        // Background
+        val bgPaint = Paint().apply {
+            color = Color.parseColor("#F4F6F8")
+            style = Paint.Style.FILL
+        }
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
+
+        // Main Receipt Card Container
+        val cardRect = RectF(36f, 36f, width - 36f, height - 36f)
+        val cardBgPaint = Paint().apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+        val cardBorderPaint = Paint().apply {
+            color = Color.parseColor("#E0E0E0")
+            style = Paint.Style.STROKE
+            strokeWidth = 2f
+            isAntiAlias = true
+        }
+        canvas.drawRoundRect(cardRect, 24f, 24f, cardBgPaint)
+        canvas.drawRoundRect(cardRect, 24f, 24f, cardBorderPaint)
+
+        // Header Background
+        val headerRect = RectF(36f, 36f, width - 36f, 200f)
+        val headerPaint = Paint().apply {
+            color = Color.parseColor("#1B5E20")
+            isAntiAlias = true
+        }
+        canvas.drawRoundRect(headerRect, 24f, 24f, headerPaint)
+        canvas.drawRect(36f, 160f, width - 36f, 200f, headerPaint)
+
+        // Header Texts
+        val titlePaint = Paint().apply {
+            color = Color.WHITE
+            isAntiAlias = true
+            textSize = 22f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            letterSpacing = 0.08f
+        }
+        canvas.drawText("KAS TRANSPARAN", 64f, 85f, titlePaint)
+
+        val groupPaint = Paint().apply {
+            color = Color.WHITE
+            isAntiAlias = true
+            textSize = 34f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        val groupName = settings.groupName.ifBlank { "Kelompok Kas" }
+        canvas.drawText(if (groupName.length > 24) groupName.take(22) + "..." else groupName, 64f, 135f, groupPaint)
+
+        val receiptBadgePaint = Paint().apply {
+            color = Color.parseColor("#E8F5E9")
+            isAntiAlias = true
+            textSize = 20f
+        }
+        val receiptTypeLabel = if (isIncome) "BUKTI KAS MASUK" else "BUKTI KAS KELUAR"
+        canvas.drawText(receiptTypeLabel, 64f, 175f, receiptBadgePaint)
+
+        // Amount Box
+        val amountBoxRect = RectF(64f, 230f, width - 64f, 350f)
+        val amountBoxBg = Paint().apply {
+            color = if (isIncome) Color.parseColor("#E8F5E9") else Color.parseColor("#FFEBEE")
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+        val amountBoxBorder = Paint().apply {
+            color = if (isIncome) Color.parseColor("#C8E6C9") else Color.parseColor("#FFCDD2")
+            style = Paint.Style.STROKE
+            strokeWidth = 2f
+            isAntiAlias = true
+        }
+        canvas.drawRoundRect(amountBoxRect, 18f, 18f, amountBoxBg)
+        canvas.drawRoundRect(amountBoxRect, 18f, 18f, amountBoxBorder)
+
+        val amountSubPaint = Paint().apply {
+            color = Color.parseColor("#555555")
+            textSize = 20f
+            isAntiAlias = true
+        }
+        canvas.drawText("Nominal Transaksi:", 90f, 268f, amountSubPaint)
+
+        val amountValPaint = Paint().apply {
+            color = if (isVoid) Color.GRAY else if (isIncome) Color.parseColor("#2E7D32") else Color.parseColor("#C62828")
+            textSize = 44f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val prefix = if (isIncome) "+ " else "- "
+        canvas.drawText(prefix + CurrencyHelper.format(tx.amount, curr), 90f, 320f, amountValPaint)
+
+        if (isVoid) {
+            val voidBadgePaint = Paint().apply {
+                color = Color.RED
+                textSize = 22f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textAlign = Paint.Align.RIGHT
+                isAntiAlias = true
+            }
+            canvas.drawText("[DIBATALKAN]", width - 90f, 268f, voidBadgePaint)
+        }
+
+        // Details Section
+        var rowY = 405f
+        val labelPaint = Paint().apply {
+            color = Color.parseColor("#546E7A")
+            textSize = 22f
+            isAntiAlias = true
+        }
+        val valPaint = Paint().apply {
+            color = Color.parseColor("#212121")
+            textSize = 22f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val dividerPaint = Paint().apply {
+            color = Color.parseColor("#ECEFF1")
+            strokeWidth = 1.5f
+        }
+
+        val timeSdf = SimpleDateFormat("HH:mm", Locale.getDefault())
+        val inputTimeStr = tx.createdAt?.toDate()?.let { " (${timeSdf.format(it)})" } ?: ""
+
+        fun drawDetailRow(label: String, value: String) {
+            canvas.drawText(label, 64f, rowY, labelPaint)
+            val cleanVal = if (value.length > 28) value.take(26) + "..." else value
+            canvas.drawText(cleanVal, 300f, rowY, valPaint)
+            canvas.drawLine(64f, rowY + 16f, width - 64f, rowY + 16f, dividerPaint)
+            rowY += 52f
+        }
+
+        drawDetailRow("No. Transaksi", tx.id.take(16))
+        drawDetailRow("Tanggal & Waktu", "${tx.date}$inputTimeStr")
+        drawDetailRow("Judul / Sumber", tx.title)
+        drawDetailRow("Kategori", tx.category)
+        drawDetailRow("Metode Bayar", tx.paymentMethod.ifBlank { "Tunai" })
+        if (tx.description.isNotBlank()) {
+            drawDetailRow("Catatan", tx.description)
+        }
+        if (isVoid && tx.voidReason.isNotBlank()) {
+            drawDetailRow("Alasan Batal", tx.voidReason)
+        }
+
+        // Signatures & Admin
+        val adminY = 820f
+        val adminLabel = Paint().apply {
+            color = Color.parseColor("#78909C")
+            textSize = 20f
+            isAntiAlias = true
+            textAlign = Paint.Align.RIGHT
+        }
+        val adminVal = Paint().apply {
+            color = Color.parseColor("#263238")
+            textSize = 24f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+            textAlign = Paint.Align.RIGHT
+        }
+        canvas.drawText("Pengelola Kas:", width - 64f, adminY, adminLabel)
+        canvas.drawText(settings.adminName.ifBlank { "Admin" }, width - 64f, adminY + 36f, adminVal)
+
+        // Footer Watermark
+        val footerPaint = Paint().apply {
+            color = Color.parseColor("#90A4AE")
+            textSize = 19f
+            textAlign = Paint.Align.CENTER
+            isAntiAlias = true
+        }
+        canvas.drawText("Dibuat otomatis oleh Kas Transparan by Rafline Dev", width / 2f, height - 60f, footerPaint)
+
+        return bitmap
+    }
+
+    fun saveTransactionReceiptImage(
+        context: Context,
+        settings: AppSettings,
+        tx: Transaction
+    ): File {
+        val bitmap = generateTransactionReceiptBitmap(settings, tx)
+        val exportDir = File(context.cacheDir, "reports")
+        if (!exportDir.exists()) exportDir.mkdirs()
+
+        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val imageFile = File(exportDir, "Struk_Transaksi_${tx.id.take(8)}_$timeStamp.png")
+
+        FileOutputStream(imageFile).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+        return imageFile
+    }
 }
