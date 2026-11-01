@@ -66,4 +66,26 @@ object CurrencyHelper {
         val formattedNumber = formatter.format(amount)
         return "$symbol $formattedNumber"
     }
+
+    /**
+     * Formats user typing input with thousand dots (e.g. 1.000, 10.000, 100.000)
+     */
+    fun formatInput(input: String): String {
+        val clean = input.filter { it.isDigit() }
+        if (clean.isEmpty()) return ""
+        val num = clean.toLongOrNull() ?: return clean
+        val symbols = DecimalFormatSymbols(Locale.GERMANY).apply {
+            groupingSeparator = '.'
+        }
+        val formatter = DecimalFormat("#,###", symbols)
+        return formatter.format(num)
+    }
+
+    /**
+     * Extracts pure Long amount from user input that contains thousand separators
+     */
+    fun parseCleanAmount(text: String): Long {
+        val clean = text.filter { it.isDigit() }
+        return clean.toLongOrNull() ?: 0L
+    }
 }

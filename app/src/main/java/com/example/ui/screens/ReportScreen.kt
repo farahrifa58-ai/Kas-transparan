@@ -21,13 +21,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TableChart
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -39,6 +45,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -84,6 +92,8 @@ fun ReportScreen(
     var customEndDate by remember { mutableStateOf("") }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var lastExcelResult by remember { mutableStateOf<ExcelExportResult?>(null) }
+    var showShareOptionsDialog by remember { mutableStateOf(false) }
+    var showExportPrintDialog by remember { mutableStateOf(false) }
 
     val sdf = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
     val displayDateSdf = remember(isEn) {
@@ -218,241 +228,67 @@ fun ReportScreen(
                 }
             }
 
-            // Action Buttons: WhatsApp (PDF + Text), Share as Image (Infographic), and Export options
+            // Action Buttons: Consolidated Share Feature & Export options
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // 1. WhatsApp Button (PDF + formatted Text)
+                    // Unified Primary Share Button (opens clean sharing options modal)
                     Button(
-                        onClick = {
-                            val pdf = PdfReportGenerator.generateReportPdf(
-                                context = context,
-                                settings = state.settings,
-                                transactions = filteredTransactions,
-                                periodTitle = periodTitle,
-                                initialBalance = initialBalance,
-                                totalIncome = totalIncome,
-                                totalExpense = totalExpense,
-                                finalBalance = finalBalance
-                            )
-                            val msg = WhatsAppShareHelper.generateWhatsAppMessage(
-                                settings = state.settings,
-                                periodTitle = periodTitle,
-                                initialBalance = initialBalance,
-                                totalIncome = totalIncome,
-                                totalExpense = totalExpense,
-                                finalBalance = finalBalance
-                            )
-                            WhatsAppShareHelper.shareReport(context, pdf, msg)
-                            statusMessage = if (isEn) "PDF report generated and text copied to clipboard!" else "Laporan PDF disiapkan dan pesan disalin ke clipboard!"
-                        },
+                        onClick = { showShareOptionsDialog = true },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(52.dp)
-                            .testTag("btn_share_whatsapp"),
+                            .testTag("btn_share_report_main"),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))
                     ) {
                         Icon(imageVector = Icons.Default.Share, contentDescription = null, tint = Color.White)
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = LanguageHelper.getString("btn_share_wa", lang),
+                            text = LanguageHelper.getString("btn_share_report", lang),
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
+                                fontSize = 15.sp
                             ),
                             color = Color.White,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.9f)
+                        )
                     }
 
-                    // 2. Share as Image (Infographic Card)
-                    Button(
-                        onClick = {
-                            try {
-                                val imageFile = ReportImageGenerator.saveReportImage(
-                                    context = context,
-                                    settings = state.settings,
-                                    transactions = filteredTransactions,
-                                    periodTitle = periodTitle,
-                                    initialBalance = initialBalance,
-                                    totalIncome = totalIncome,
-                                    totalExpense = totalExpense,
-                                    finalBalance = finalBalance
-                                )
-                                val caption = "📊 *LAPORAN KAS: ${state.settings.groupName}*\n" +
-                                        "Periode: $periodTitle\n" +
-                                        "Saldo Awal: ${CurrencyHelper.format(initialBalance, curr)}\n" +
-                                        "Pemasukan: +${CurrencyHelper.format(totalIncome, curr)}\n" +
-                                        "Pengeluaran: -${CurrencyHelper.format(totalExpense, curr)}\n" +
-                                        "Saldo Akhir: *${CurrencyHelper.format(finalBalance, curr)}*"
-
-                                ReportImageGenerator.shareReportImage(context, imageFile, caption)
-                                statusMessage = if (isEn) "Infographic image generated and ready to share!" else "Gambar infografis laporan siap dibagikan!"
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                            }
-                        },
+                    // Single Consolidated Button: [Unduh PDF / Excel & Cetak ▾]
+                    OutlinedButton(
+                        onClick = { showExportPrintDialog = true },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(50.dp)
-                            .testTag("btn_share_image"),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B5E20))
+                            .testTag("btn_export_print_options"),
+                        shape = RoundedCornerShape(14.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.Image, contentDescription = null, tint = Color.White)
+                        Icon(imageVector = Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = LanguageHelper.getString("btn_share_image_full", lang),
+                            text = if (isEn) "Download PDF / Excel & Print Report ▾" else "Unduh PDF / Excel & Cetak Laporan ▾",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp
                             ),
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.primary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                    }
-
-                    // 3 Export Buttons: [Unduh PDF] [Unduh Excel] [Cetak]
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Download PDF
-                        OutlinedButton(
-                            onClick = {
-                                val file = PdfReportGenerator.generateReportPdf(
-                                    context = context,
-                                    settings = state.settings,
-                                    transactions = filteredTransactions,
-                                    periodTitle = periodTitle,
-                                    initialBalance = initialBalance,
-                                    totalIncome = totalIncome,
-                                    totalExpense = totalExpense,
-                                    finalBalance = finalBalance
-                                )
-                                Toast.makeText(context, "PDF: ${file.name}", Toast.LENGTH_SHORT).show()
-                                statusMessage = "PDF: ${file.name}"
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(46.dp)
-                                .testTag("btn_download_pdf"),
-                            shape = RoundedCornerShape(12.dp),
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
-                        ) {
-                            Icon(imageVector = Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = LanguageHelper.getString("download_pdf", lang),
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        // Export Excel (Saved directly to phone's public Downloads folder)
-                        OutlinedButton(
-                            onClick = {
-                                val result = ExcelExporter.exportAndSaveToDownloads(
-                                    context = context,
-                                    settings = state.settings,
-                                    transactions = filteredTransactions,
-                                    periodTitle = periodTitle,
-                                    initialBalance = initialBalance,
-                                    totalIncome = totalIncome,
-                                    totalExpense = totalExpense,
-                                    finalBalance = finalBalance
-                                )
-                                lastExcelResult = result
-                                val toastText = if (isEn) "Excel saved to ${result.savedPathDisplay}" else "Excel disimpan di ${result.savedPathDisplay}"
-                                Toast.makeText(context, toastText, Toast.LENGTH_LONG).show()
-                                statusMessage = "${LanguageHelper.getString("excel_saved_download", lang)} ${result.savedPathDisplay}"
-                            },
-                            modifier = Modifier
-                                .weight(1.05f)
-                                .height(46.dp)
-                                .testTag("btn_export_excel"),
-                            shape = RoundedCornerShape(12.dp),
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
-                        ) {
-                            Icon(imageVector = Icons.Default.TableChart, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = LanguageHelper.getString("export_excel", lang),
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        // Cetak Laporan (Print)
-                        OutlinedButton(
-                            onClick = {
-                                val pdf = PdfReportGenerator.generateReportPdf(
-                                    context = context,
-                                    settings = state.settings,
-                                    transactions = filteredTransactions,
-                                    periodTitle = periodTitle,
-                                    initialBalance = initialBalance,
-                                    totalIncome = totalIncome,
-                                    totalExpense = totalExpense,
-                                    finalBalance = finalBalance
-                                )
-                                val printManager = context.getSystemService(Context.PRINT_SERVICE) as? PrintManager
-                                val printAdapter = object : android.print.PrintDocumentAdapter() {
-                                    override fun onLayout(
-                                        oldAttributes: PrintAttributes?,
-                                        newAttributes: PrintAttributes?,
-                                        cancellationSignal: android.os.CancellationSignal?,
-                                        callback: LayoutResultCallback?,
-                                        extras: android.os.Bundle?
-                                    ) {
-                                        callback?.onLayoutFinished(
-                                            android.print.PrintDocumentInfo.Builder("laporan_kas.pdf")
-                                                .setContentType(android.print.PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
-                                                .build(),
-                                            true
-                                        )
-                                    }
-
-                                    override fun onWrite(
-                                        pages: Array<out android.print.PageRange>?,
-                                        destination: android.os.ParcelFileDescriptor?,
-                                        cancellationSignal: android.os.CancellationSignal?,
-                                        callback: WriteResultCallback?
-                                    ) {
-                                        try {
-                                             FileInputStream(pdf).use { input ->
-                                                android.os.ParcelFileDescriptor.AutoCloseOutputStream(destination).use { output ->
-                                                    input.copyTo(output)
-                                                }
-                                            }
-                                            callback?.onWriteFinished(arrayOf(android.print.PageRange.ALL_PAGES))
-                                        } catch (e: Exception) {
-                                            callback?.onWriteFailed(e.localizedMessage)
-                                        }
-                                    }
-                                }
-                                printManager?.print("Laporan Kas Transparan", printAdapter, null)
-                            },
-                            modifier = Modifier
-                                .weight(0.85f)
-                                .height(46.dp)
-                                .testTag("btn_print_report"),
-                            shape = RoundedCornerShape(12.dp),
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
-                        ) {
-                            Icon(imageVector = Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = LanguageHelper.getString("print_report", lang),
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
             }
@@ -645,6 +481,394 @@ fun ReportScreen(
             }
         }
     }
+
+    if (showShareOptionsDialog) {
+        ShareReportOptionsDialog(
+            periodTitle = periodTitle,
+            initialBalance = initialBalance,
+            totalIncome = totalIncome,
+            totalExpense = totalExpense,
+            finalBalance = finalBalance,
+            filteredTransactions = filteredTransactions,
+            settings = state.settings,
+            onDismiss = { showShareOptionsDialog = false },
+            onStatusMessage = { statusMessage = it },
+            onExcelExport = { lastExcelResult = it }
+        )
+    }
+
+    if (showExportPrintDialog) {
+        ExportPrintOptionsDialog(
+            periodTitle = periodTitle,
+            initialBalance = initialBalance,
+            totalIncome = totalIncome,
+            totalExpense = totalExpense,
+            finalBalance = finalBalance,
+            filteredTransactions = filteredTransactions,
+            settings = state.settings,
+            onDismiss = { showExportPrintDialog = false },
+            onStatusMessage = { statusMessage = it },
+            onExcelExport = { lastExcelResult = it }
+        )
+    }
+}
+
+@Composable
+fun ShareReportOptionsDialog(
+    periodTitle: String,
+    initialBalance: Long,
+    totalIncome: Long,
+    totalExpense: Long,
+    finalBalance: Long,
+    filteredTransactions: List<com.example.data.model.Transaction>,
+    settings: com.example.data.model.AppSettings,
+    onDismiss: () -> Unit,
+    onStatusMessage: (String) -> Unit,
+    onExcelExport: (ExcelExportResult) -> Unit
+) {
+    val context = LocalContext.current
+    val lang = settings.language
+    val curr = settings.currencyCode
+    val isEn = lang.equals("en", ignoreCase = true)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF25D366).copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = null,
+                        tint = Color(0xFF1E7E34),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = LanguageHelper.getString("share_report_dialog_title", lang),
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                    Text(
+                        text = "${LanguageHelper.getString("period_label", lang)}: $periodTitle",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = LanguageHelper.getString("share_report_dialog_subtitle", lang),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // 1. WhatsApp Option (PDF + Teks Rangkuman)
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            try {
+                                val pdf = PdfReportGenerator.generateReportPdf(
+                                    context = context,
+                                    settings = settings,
+                                    transactions = filteredTransactions,
+                                    periodTitle = periodTitle,
+                                    initialBalance = initialBalance,
+                                    totalIncome = totalIncome,
+                                    totalExpense = totalExpense,
+                                    finalBalance = finalBalance
+                                )
+                                val msg = WhatsAppShareHelper.generateWhatsAppMessage(
+                                    settings = settings,
+                                    periodTitle = periodTitle,
+                                    initialBalance = initialBalance,
+                                    totalIncome = totalIncome,
+                                    totalExpense = totalExpense,
+                                    finalBalance = finalBalance
+                                )
+                                WhatsAppShareHelper.shareReport(context, pdf, msg)
+                                onStatusMessage(
+                                    if (isEn) "PDF report generated and text copied to clipboard!"
+                                    else "Laporan PDF disiapkan dan pesan disalin ke clipboard!"
+                                )
+                                onDismiss()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        .testTag("btn_share_whatsapp"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF25D366).copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = null,
+                                tint = Color(0xFF1E7E34),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = LanguageHelper.getString("share_wa_title", lang),
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = LanguageHelper.getString("share_wa_desc", lang),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // 2. Infographic Image Option (.png)
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            try {
+                                val imageFile = ReportImageGenerator.saveReportImage(
+                                    context = context,
+                                    settings = settings,
+                                    transactions = filteredTransactions,
+                                    periodTitle = periodTitle,
+                                    initialBalance = initialBalance,
+                                    totalIncome = totalIncome,
+                                    totalExpense = totalExpense,
+                                    finalBalance = finalBalance
+                                )
+                                val caption = "📊 *LAPORAN KAS: ${settings.groupName}*\n" +
+                                        "Periode: $periodTitle\n" +
+                                        "Saldo Awal: ${CurrencyHelper.format(initialBalance, curr)}\n" +
+                                        "Pemasukan: +${CurrencyHelper.format(totalIncome, curr)}\n" +
+                                        "Pengeluaran: -${CurrencyHelper.format(totalExpense, curr)}\n" +
+                                        "Saldo Akhir: *${CurrencyHelper.format(finalBalance, curr)}*"
+
+                                ReportImageGenerator.shareReportImage(context, imageFile, caption)
+                                onStatusMessage(
+                                    if (isEn) "Infographic image generated and ready to share!"
+                                    else "Gambar infografis laporan siap dibagikan!"
+                                )
+                                onDismiss()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        .testTag("btn_share_image"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF1B5E20).copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Image,
+                                contentDescription = null,
+                                tint = Color(0xFF1B5E20),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = LanguageHelper.getString("share_img_title", lang),
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = LanguageHelper.getString("share_img_desc", lang),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // 3. Official PDF File Option (.pdf)
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            try {
+                                val pdf = PdfReportGenerator.generateReportPdf(
+                                    context = context,
+                                    settings = settings,
+                                    transactions = filteredTransactions,
+                                    periodTitle = periodTitle,
+                                    initialBalance = initialBalance,
+                                    totalIncome = totalIncome,
+                                    totalExpense = totalExpense,
+                                    finalBalance = finalBalance
+                                )
+                                val msg = WhatsAppShareHelper.generateWhatsAppMessage(
+                                    settings = settings,
+                                    periodTitle = periodTitle,
+                                    initialBalance = initialBalance,
+                                    totalIncome = totalIncome,
+                                    totalExpense = totalExpense,
+                                    finalBalance = finalBalance
+                                )
+                                WhatsAppShareHelper.shareFile(
+                                    context = context,
+                                    file = pdf,
+                                    mimeType = "application/pdf",
+                                    subject = "Laporan Kas - $periodTitle",
+                                    captionText = msg
+                                )
+                                onStatusMessage(
+                                    if (isEn) "PDF report file ready to share!"
+                                    else "File PDF laporan siap dibagikan!"
+                                )
+                                onDismiss()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        .testTag("btn_share_pdf_direct"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PictureAsPdf,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = LanguageHelper.getString("share_pdf_file_title", lang),
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = LanguageHelper.getString("share_pdf_file_desc", lang),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // 4. Excel CSV Spreadsheet Option
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            try {
+                                val result = ExcelExporter.exportAndSaveToDownloads(
+                                    context = context,
+                                    settings = settings,
+                                    transactions = filteredTransactions,
+                                    periodTitle = periodTitle,
+                                    initialBalance = initialBalance,
+                                    totalIncome = totalIncome,
+                                    totalExpense = totalExpense,
+                                    finalBalance = finalBalance
+                                )
+                                onExcelExport(result)
+                                ExcelExporter.openOrShareCsv(context, result)
+                                onDismiss()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        .testTag("btn_share_excel_direct"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(IncomeGreen.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.TableChart,
+                                contentDescription = null,
+                                tint = IncomeGreen,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = LanguageHelper.getString("share_excel_title", lang),
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = LanguageHelper.getString("share_excel_desc", lang),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(LanguageHelper.getString("btn_close", lang))
+            }
+        }
+    )
 }
 
 @Composable
@@ -671,5 +895,287 @@ private fun ReportSummaryRow(
             color = if (color != Color.Unspecified) color else MaterialTheme.colorScheme.onSurface
         )
     }
+}
+
+@Composable
+fun ExportPrintOptionsDialog(
+    periodTitle: String,
+    initialBalance: Long,
+    totalIncome: Long,
+    totalExpense: Long,
+    finalBalance: Long,
+    filteredTransactions: List<com.example.data.model.Transaction>,
+    settings: com.example.data.model.AppSettings,
+    onDismiss: () -> Unit,
+    onStatusMessage: (String) -> Unit,
+    onExcelExport: (ExcelExportResult) -> Unit
+) {
+    val context = LocalContext.current
+    val lang = settings.language
+    val isEn = lang.equals("en", ignoreCase = true)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PictureAsPdf,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = if (isEn) "Download & Print Report" else "Unduh & Cetak Laporan",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                    Text(
+                        text = "${LanguageHelper.getString("period_label", lang)}: $periodTitle",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = if (isEn) "Select the export format or action you want:"
+                    else "Pilih format dokumen atau tindakan yang diinginkan:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // 1. Unduh PDF Option
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val file = PdfReportGenerator.generateReportPdf(
+                                context = context,
+                                settings = settings,
+                                transactions = filteredTransactions,
+                                periodTitle = periodTitle,
+                                initialBalance = initialBalance,
+                                totalIncome = totalIncome,
+                                totalExpense = totalExpense,
+                                finalBalance = finalBalance
+                            )
+                            Toast.makeText(context, "PDF tersimpan: ${file.name}", Toast.LENGTH_SHORT).show()
+                            onStatusMessage("PDF: ${file.name}")
+                            onDismiss()
+                        }
+                        .testTag("dialog_btn_unduh_pdf"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFE53935).copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PictureAsPdf,
+                                contentDescription = null,
+                                tint = Color(0xFFC62828),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Unduh Dokumen PDF (.pdf)",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "Laporan formal lengkap dengan kop dan rincian kas",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // 2. Unduh Excel Option
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val result = ExcelExporter.exportAndSaveToDownloads(
+                                context = context,
+                                settings = settings,
+                                transactions = filteredTransactions,
+                                periodTitle = periodTitle,
+                                initialBalance = initialBalance,
+                                totalIncome = totalIncome,
+                                totalExpense = totalExpense,
+                                finalBalance = finalBalance
+                            )
+                            onExcelExport(result)
+                            val toastText = if (isEn) "Excel saved to ${result.savedPathDisplay}" else "Excel disimpan di ${result.savedPathDisplay}"
+                            Toast.makeText(context, toastText, Toast.LENGTH_LONG).show()
+                            onStatusMessage("${LanguageHelper.getString("excel_saved_download", lang)} ${result.savedPathDisplay}")
+                            onDismiss()
+                        }
+                        .testTag("dialog_btn_unduh_excel"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF2E7D32).copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.TableChart,
+                                contentDescription = null,
+                                tint = Color(0xFF1B5E20),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Unduh File Excel (.csv)",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "Tersimpan langsung ke folder Download HP",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // 3. Cetak Laporan Option
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val pdf = PdfReportGenerator.generateReportPdf(
+                                context = context,
+                                settings = settings,
+                                transactions = filteredTransactions,
+                                periodTitle = periodTitle,
+                                initialBalance = initialBalance,
+                                totalIncome = totalIncome,
+                                totalExpense = totalExpense,
+                                finalBalance = finalBalance
+                            )
+                            val printManager = context.getSystemService(Context.PRINT_SERVICE) as? PrintManager
+                            val printAdapter = object : android.print.PrintDocumentAdapter() {
+                                override fun onLayout(
+                                    oldAttributes: PrintAttributes?,
+                                    newAttributes: PrintAttributes?,
+                                    cancellationSignal: android.os.CancellationSignal?,
+                                    callback: LayoutResultCallback?,
+                                    extras: android.os.Bundle?
+                                ) {
+                                    callback?.onLayoutFinished(
+                                        android.print.PrintDocumentInfo.Builder("laporan_kas.pdf")
+                                            .setContentType(android.print.PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+                                            .build(),
+                                        true
+                                    )
+                                }
+
+                                override fun onWrite(
+                                    pages: Array<out android.print.PageRange>?,
+                                    destination: android.os.ParcelFileDescriptor?,
+                                    cancellationSignal: android.os.CancellationSignal?,
+                                    callback: WriteResultCallback?
+                                ) {
+                                    try {
+                                        FileInputStream(pdf).use { input ->
+                                            android.os.ParcelFileDescriptor.AutoCloseOutputStream(destination).use { output ->
+                                                input.copyTo(output)
+                                            }
+                                        }
+                                        callback?.onWriteFinished(arrayOf(android.print.PageRange.ALL_PAGES))
+                                    } catch (e: Exception) {
+                                        callback?.onWriteFailed(e.localizedMessage)
+                                    }
+                                }
+                            }
+                            printManager?.print("Laporan Kas Transparan", printAdapter, null)
+                            onDismiss()
+                        }
+                        .testTag("dialog_btn_cetak_laporan"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF0288D1).copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Print,
+                                contentDescription = null,
+                                tint = Color(0xFF0277BD),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Cetak Laporan (Print)",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "Cetak langsung via printer atau simpan PDF",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(LanguageHelper.getString("btn_close", lang))
+            }
+        }
+    )
 }
 

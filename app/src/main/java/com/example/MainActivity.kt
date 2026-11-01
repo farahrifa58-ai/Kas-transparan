@@ -87,63 +87,99 @@ import androidx.compose.ui.res.painterResource
 import com.example.ui.theme.SoftSkyBlueGradient
 import kotlinx.coroutines.delay
 
+import android.util.Log
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.graphics.graphicsLayer
+import com.google.firebase.FirebaseOptions
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (FirebaseApp.getApps(this).isEmpty()) {
-            FirebaseApp.initializeApp(this)
+        try {
+            if (FirebaseApp.getApps(this).isEmpty()) {
+                val options = FirebaseOptions.fromResource(this)
+                if (options != null) {
+                    FirebaseApp.initializeApp(this, options)
+                } else {
+                    val fallbackOptions = FirebaseOptions.Builder()
+                        .setApplicationId(packageName)
+                        .setProjectId("ai-studio-kas-transparan")
+                        .setApiKey("AIzaSyFallbackKeyForKasTransparan2026")
+                        .setDatabaseUrl("https://ai-studio-kas-transparan.firebaseio.com")
+                        .build()
+                    FirebaseApp.initializeApp(this, fallbackOptions)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "FirebaseApp init error", e)
+            try {
+                val fallbackOptions = FirebaseOptions.Builder()
+                    .setApplicationId(packageName)
+                    .setProjectId("ai-studio-kas-transparan")
+                    .setApiKey("AIzaSyFallbackKeyForKasTransparan2026")
+                    .build()
+                FirebaseApp.initializeApp(this, fallbackOptions)
+            } catch (e2: Exception) {
+                Log.e("MainActivity", "Secondary fallback init error", e2)
+            }
         }
         enableEdgeToEdge()
 
         setContent {
             var isSplashVisible by remember { mutableStateOf(true) }
             LaunchedEffect(Unit) {
-                delay(2000L)
+                delay(1200L)
                 isSplashVisible = false
             }
 
-            var currentUser by remember {
-                mutableStateOf<FirebaseUser?>(
-                    try {
-                        Firebase.auth.currentUser
-                    } catch (e: Exception) {
-                        null
-                    }
-                )
-            }
+            val splashAlpha by animateFloatAsState(
+                targetValue = if (isSplashVisible) 1f else 0f,
+                animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+                label = "splash_alpha"
+            )
 
-            DisposableEffect(Unit) {
-                val listener = FirebaseAuth.AuthStateListener { auth ->
-                    currentUser = auth.currentUser
-                }
-                Firebase.auth.addAuthStateListener(listener)
-                onDispose {
-                    Firebase.auth.removeAuthStateListener(listener)
-                }
-            }
+            val mainAlpha by animateFloatAsState(
+                targetValue = if (isSplashVisible) 0f else 1f,
+                animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+                label = "main_alpha"
+            )
 
-            KasTransparanTheme(themeMode = "SYSTEM") {
-                AnimatedContent(
-                    targetState = isSplashVisible,
-                    transitionSpec = {
-                        fadeIn(animationSpec = tween(400)) togetherWith fadeOut(animationSpec = tween(400))
-                    },
-                    label = "splash_transition"
-                ) { showingSplash ->
-                    if (showingSplash) {
-                        SplashScreen()
-                    } else {
-                        if (currentUser == null) {
-                            AuthScreen(onAuthSuccess = {
-                                currentUser = Firebase.auth.currentUser
-                            })
-                        } else {
+            val repository = remember { KasRepository.getInstance(applicationContext) }
+            val appSettings by repository.observeSettings("local_admin").collectAsState(initial = com.example.data.model.AppSettings())
+            val themeMode = appSettings?.themeMode ?: "SYSTEM"
+
+            KasTransparanTheme(themeMode = themeMode) {
+                val isLight = MaterialTheme.colorScheme.background == com.example.ui.theme.AppBackgroundLight
+                // Continuous background adapts cleanly between Dark and Light themes
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (isLight) Modifier.background(SoftSkyBlueGradient)
+                            else Modifier.background(MaterialTheme.colorScheme.background)
+                        )
+                ) {
+                    if (mainAlpha > 0f) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer { alpha = mainAlpha }
+                        ) {
                             AppMainContent(
-                                userId = currentUser!!.uid,
-                                onSignOut = {
-                                    currentUser = null
-                                }
+                                userId = "local_admin",
+                                onSignOut = {}
                             )
+                        }
+                    }
+
+                    if (splashAlpha > 0f) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer { alpha = splashAlpha }
+                        ) {
+                            SplashScreen()
                         }
                     }
                 }
@@ -154,10 +190,19 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun SplashScreen() {
+    val blueWhiteGradient = androidx.compose.ui.graphics.Brush.verticalGradient(
+        colors = listOf(
+            Color(0xFF0277BD), // Biru laut cerah di atas
+            Color(0xFF29B6F6), // Biru langit
+            Color(0xFFE1F5FE), // Transisi biru muda lembut
+            Color(0xFFFFFFFF)  // Putih bersih di bawah
+        )
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(SoftSkyBlueGradient),
+            .background(blueWhiteGradient),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -166,41 +211,41 @@ fun SplashScreen() {
             modifier = Modifier.padding(24.dp)
         ) {
             Card(
-                shape = RoundedCornerShape(26.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                shape = RoundedCornerShape(28.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
                 colors = CardDefaults.cardColors(containerColor = Color.White)
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.app_custom_logo),
                     contentDescription = "Logo Kas Transparan",
                     modifier = Modifier
-                        .size(110.dp)
-                        .clip(RoundedCornerShape(26.dp))
+                        .size(116.dp)
+                        .clip(RoundedCornerShape(28.dp))
                 )
             }
 
-            Spacer(modifier = Modifier.height(22.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             Text(
                 text = "Kas Transparan",
                 style = MaterialTheme.typography.headlineMedium.copy(
                     fontWeight = FontWeight.ExtraBold,
                     letterSpacing = 0.5.sp,
-                    fontSize = 26.sp
+                    fontSize = 28.sp
                 ),
-                color = Color(0xFF1B5E20)
+                color = Color(0xFF01579B)
             )
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Text(
                 text = "by Rafline Dev",
                 style = MaterialTheme.typography.bodyMedium.copy(
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 0.5.sp,
-                    fontSize = 15.sp
+                    fontSize = 16.sp
                 ),
-                color = Color(0xFF455A64)
+                color = Color(0xFF0277BD)
             )
         }
     }
@@ -224,7 +269,7 @@ fun AppMainContent(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val credentialManager = remember { CredentialManager.create(context) }
-    val repository = remember(userId) { KasRepository(context) }
+    val repository = remember(userId) { KasRepository.getInstance(context) }
     val viewModel: KasViewModel = remember(userId) { KasViewModel(repository, userId) }
 
     val uiState by viewModel.uiState.collectAsState()

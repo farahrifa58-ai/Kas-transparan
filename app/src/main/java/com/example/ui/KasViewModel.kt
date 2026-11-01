@@ -282,4 +282,31 @@ class KasViewModel(
             }
         }
     }
+
+    fun createBackupFile(): java.io.File? {
+        return repository.createBackupFile()
+    }
+
+    fun restoreBackup(jsonString: String, onComplete: (Result<Int>) -> Unit) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            val result = repository.restoreBackup(jsonString)
+            _isLoading.value = false
+            if (result.isSuccess) {
+                val count = result.getOrNull() ?: 0
+                _feedbackMessage.value = "Data berhasil dipulihkan! ($count transaksi dimuat)"
+            } else {
+                _feedbackMessage.value = "Gagal memulihkan cadangan: ${result.exceptionOrNull()?.localizedMessage}"
+            }
+            onComplete(result)
+        }
+    }
+
+    fun getLastBackupTimestamp(): Long {
+        return repository.getLastBackupTimestamp()
+    }
+
+    fun setLastBackupTimestamp(time: Long) {
+        repository.setLastBackupTimestamp(time)
+    }
 }

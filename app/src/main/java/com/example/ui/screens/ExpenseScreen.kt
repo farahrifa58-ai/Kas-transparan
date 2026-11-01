@@ -211,9 +211,7 @@ fun ExpenseScreen(
         OutlinedTextField(
             value = amountText,
             onValueChange = { input ->
-                if (input.all { it.isDigit() }) {
-                    amountText = input
-                }
+                amountText = CurrencyHelper.formatInput(input)
             },
             label = { Text(LanguageHelper.getString("field_amount", lang)) },
             placeholder = { Text("0") },
@@ -356,7 +354,7 @@ fun ExpenseScreen(
         // Tombol Simpan Pengeluaran
         Button(
             onClick = {
-                val amount = amountText.toLongOrNull() ?: 0L
+                val amount = CurrencyHelper.parseCleanAmount(amountText)
                 if (title.isBlank()) {
                     errorValidation = LanguageHelper.getString("error_empty_title", lang)
                     return@Button
