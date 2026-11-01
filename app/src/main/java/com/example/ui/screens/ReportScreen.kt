@@ -69,6 +69,7 @@ import com.example.util.CurrencyHelper
 import com.example.util.ExcelExportResult
 import com.example.util.ExcelExporter
 import com.example.util.LanguageHelper
+import com.example.util.PdfExportResult
 import com.example.util.PdfReportGenerator
 import com.example.util.ReportImageGenerator
 import com.example.util.WhatsAppShareHelper
@@ -92,6 +93,7 @@ fun ReportScreen(
     var customEndDate by remember { mutableStateOf("") }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var lastExcelResult by remember { mutableStateOf<ExcelExportResult?>(null) }
+    var lastPdfResult by remember { mutableStateOf<PdfExportResult?>(null) }
     var showShareOptionsDialog by remember { mutableStateOf(false) }
     var showExportPrintDialog by remember { mutableStateOf(false) }
 
@@ -289,6 +291,68 @@ fun ReportScreen(
                             modifier = Modifier.size(18.dp),
                             tint = MaterialTheme.colorScheme.primary
                         )
+                    }
+                }
+            }
+
+            // Notice Banner when PDF is saved directly to Download folder
+            if (lastPdfResult != null && lastPdfResult?.success == true) {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("pdf_download_success_card"),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.DownloadDone,
+                                    contentDescription = null,
+                                    tint = Color(0xFFC62828),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (isEn) "PDF Report Saved to Downloads" else "Laporan PDF Berhasil Disimpan ke Download",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                    color = Color(0xFFB71C1C)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = lastPdfResult?.savedPathDisplay ?: "",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = Color(0xFFC62828)
+                            )
+                            Text(
+                                text = if (isEn) "File is ready in device Download folder. Tap below to open or share."
+                                else "File sudah ada di folder Download HP. Ketuk tombol di bawah untuk membuka atau membagikan.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFFD32F2F)
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = {
+                                        lastPdfResult?.let { res ->
+                                            PdfReportGenerator.openOrSharePdf(context, res)
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = (if (isEn) "Open / Share PDF" else "Buka / Bagikan PDF"),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -508,6 +572,7 @@ fun ReportScreen(
             settings = state.settings,
             onDismiss = { showExportPrintDialog = false },
             onStatusMessage = { statusMessage = it },
+            onPdfExport = { lastPdfResult = it },
             onExcelExport = { lastExcelResult = it }
         )
     }
@@ -908,6 +973,7 @@ fun ExportPrintOptionsDialog(
     settings: com.example.data.model.AppSettings,
     onDismiss: () -> Unit,
     onStatusMessage: (String) -> Unit,
+    onPdfExport: (PdfExportResult) -> Unit,
     onExcelExport: (ExcelExportResult) -> Unit
 ) {
     val context = LocalContext.current
@@ -960,12 +1026,12 @@ fun ExportPrintOptionsDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                // 1. Unduh PDF Option
+                // 1. Unduh PDF Option (Saved directly to phone's public Download folder)
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
-                            val file = PdfReportGenerator.generateReportPdf(
+                            val result = PdfReportGenerator.generateAndSaveToDownloads(
                                 context = context,
                                 settings = settings,
                                 transactions = filteredTransactions,
@@ -975,8 +1041,10 @@ fun ExportPrintOptionsDialog(
                                 totalExpense = totalExpense,
                                 finalBalance = finalBalance
                             )
-                            Toast.makeText(context, "PDF tersimpan: ${file.name}", Toast.LENGTH_SHORT).show()
-                            onStatusMessage("PDF: ${file.name}")
+                            onPdfExport(result)
+                            val toastText = if (isEn) "PDF saved to ${result.savedPathDisplay}" else "PDF berhasil disimpan di ${result.savedPathDisplay}"
+                            Toast.makeText(context, toastText, Toast.LENGTH_LONG).show()
+                            onStatusMessage("${if (isEn) "PDF saved:" else "PDF disimpan:"} ${result.savedPathDisplay}")
                             onDismiss()
                         }
                         .testTag("dialog_btn_unduh_pdf"),
@@ -1010,7 +1078,7 @@ fun ExportPrintOptionsDialog(
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
                             )
                             Text(
-                                text = "Laporan formal lengkap dengan kop dan rincian kas",
+                                text = "Tersimpan di folder Download HP, catatan lengkap rapi",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -1018,7 +1086,7 @@ fun ExportPrintOptionsDialog(
                     }
                 }
 
-                // 2. Unduh Excel Option
+                // 2. Unduh Excel (.xls - SpreadsheetML) Option
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1031,15 +1099,16 @@ fun ExportPrintOptionsDialog(
                                 initialBalance = initialBalance,
                                 totalIncome = totalIncome,
                                 totalExpense = totalExpense,
-                                finalBalance = finalBalance
+                                finalBalance = finalBalance,
+                                format = "XLS"
                             )
                             onExcelExport(result)
-                            val toastText = if (isEn) "Excel saved to ${result.savedPathDisplay}" else "Excel disimpan di ${result.savedPathDisplay}"
+                            val toastText = if (isEn) "Excel (.xls) saved to ${result.savedPathDisplay}" else "Excel (.xls) disimpan di ${result.savedPathDisplay}"
                             Toast.makeText(context, toastText, Toast.LENGTH_LONG).show()
                             onStatusMessage("${LanguageHelper.getString("excel_saved_download", lang)} ${result.savedPathDisplay}")
                             onDismiss()
                         }
-                        .testTag("dialog_btn_unduh_excel"),
+                        .testTag("dialog_btn_unduh_excel_xls"),
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 ) {
@@ -1066,11 +1135,11 @@ fun ExportPrintOptionsDialog(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Unduh File Excel (.csv)",
+                                text = "Unduh Format Excel (.xls)",
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
                             )
                             Text(
-                                text = "Tersimpan langsung ke folder Download HP",
+                                text = "Tersusun rapi di kolom A-K terpisah dengan tabel dan warna",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -1078,7 +1147,68 @@ fun ExportPrintOptionsDialog(
                     }
                 }
 
-                // 3. Cetak Laporan Option
+                // 3. Unduh CSV (.csv) Option
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val result = ExcelExporter.exportAndSaveToDownloads(
+                                context = context,
+                                settings = settings,
+                                transactions = filteredTransactions,
+                                periodTitle = periodTitle,
+                                initialBalance = initialBalance,
+                                totalIncome = totalIncome,
+                                totalExpense = totalExpense,
+                                finalBalance = finalBalance,
+                                format = "CSV"
+                            )
+                            onExcelExport(result)
+                            val toastText = if (isEn) "CSV (.csv) saved to ${result.savedPathDisplay}" else "CSV (.csv) disimpan di ${result.savedPathDisplay}"
+                            Toast.makeText(context, toastText, Toast.LENGTH_LONG).show()
+                            onStatusMessage("CSV: ${result.savedPathDisplay}")
+                            onDismiss()
+                        }
+                        .testTag("dialog_btn_unduh_csv"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF00796B).copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.TableChart,
+                                contentDescription = null,
+                                tint = Color(0xFF004D40),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Unduh Format CSV (.csv)",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "File tabel standar koma universal dengan UTF-8",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // 4. Cetak Laporan Option
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
