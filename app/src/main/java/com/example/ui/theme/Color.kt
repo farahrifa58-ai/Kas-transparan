@@ -48,17 +48,14 @@ val ExpenseRed: Color
     @ReadOnlyComposable
     get() = if (MaterialTheme.colorScheme.background == AppBackgroundLight) ExpenseRedLight else ExpenseRedDark
 
-// Requested Light Background: Soft light sky blue on top blending down to pure white
-val LightBgTopBlue = Color(0xFFE3F2FD) // Soft subtle light blue
-val LightBgMidBlue = Color(0xFFF0F7FD)
-val LightBgBottomWhite = Color(0xFFFFFFFF)
+// Requested App Theme Colors
+val TopBarBlue = Color(0xFF0288D1)          // Biru cerah di bagian atas saja (TopAppBar)
+val TopBarBlueDark = Color(0xFF01579B)
 
 val SoftSkyBlueGradient = Brush.verticalGradient(
     colors = listOf(
-        LightBgTopBlue,
-        LightBgMidBlue,
-        LightBgBottomWhite,
-        LightBgBottomWhite
+        Color(0xFFFFFFFF),
+        Color(0xFFFFFFFF)
     )
 )
 

@@ -1074,11 +1074,11 @@ fun ExportPrintOptionsDialog(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Unduh Dokumen PDF (.pdf)",
+                                text = LanguageHelper.getString("download_pdf_card_title", lang),
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
                             )
                             Text(
-                                text = "Tersimpan di folder Download HP, catatan lengkap rapi",
+                                text = LanguageHelper.getString("download_pdf_card_desc", lang),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -1135,11 +1135,11 @@ fun ExportPrintOptionsDialog(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Unduh Format Excel (.xls)",
+                                text = LanguageHelper.getString("download_xls_card_title", lang),
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
                             )
                             Text(
-                                text = "Tersusun rapi di kolom A-K terpisah dengan tabel dan warna",
+                                text = LanguageHelper.getString("download_xls_card_desc", lang),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -1196,11 +1196,11 @@ fun ExportPrintOptionsDialog(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Unduh Format CSV (.csv)",
+                                text = LanguageHelper.getString("download_csv_card_title", lang),
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
                             )
                             Text(
-                                text = "File tabel standar koma universal dengan UTF-8",
+                                text = LanguageHelper.getString("download_csv_card_desc", lang),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -1288,11 +1288,11 @@ fun ExportPrintOptionsDialog(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Cetak Laporan (Print)",
+                                text = LanguageHelper.getString("print_report_card_title", lang),
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
                             )
                             Text(
-                                text = "Cetak langsung via printer atau simpan PDF",
+                                text = LanguageHelper.getString("print_report_card_desc", lang),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

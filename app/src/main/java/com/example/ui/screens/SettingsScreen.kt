@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -26,8 +27,12 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.AccountBalanceWallet
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudDownload
@@ -39,13 +44,16 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.MonetizationOn
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
@@ -109,6 +117,7 @@ fun SettingsScreen(
 
     var currencyDropdownExpanded by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
 
     val context = androidx.compose.ui.platform.LocalContext.current
     var lastBackupTimestamp by remember { mutableStateOf(viewModel.getLastBackupTimestamp()) }
@@ -166,7 +175,7 @@ fun SettingsScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
-                            Icons.Default.ArrowBack,
+                            Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = if (selectedLanguage == "en") "Back" else "Kembali"
                         )
                     }
@@ -202,7 +211,9 @@ fun SettingsScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = if (isLight) Color(0xFF0288D1) else MaterialTheme.colorScheme.surface,
+                    titleContentColor = if (isLight) Color.White else MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = if (isLight) Color.White else MaterialTheme.colorScheme.onSurface
                 )
             )
         }
@@ -273,6 +284,36 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth().testTag("input_initial_balance"),
                         shape = RoundedCornerShape(10.dp)
                     )
+
+                    // Quick addition helper chips
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = LanguageHelper.getString("quick_presets", selectedLanguage),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val presetList = listOf(100_000L, 500_000L, 1_000_000L, 5_000_000L)
+                            presetList.forEach { addAmt ->
+                                SuggestionChip(
+                                    onClick = {
+                                        val cur = CurrencyHelper.parseCleanAmount(initialBalanceText)
+                                        initialBalanceText = CurrencyHelper.formatInput((cur + addAmt).toString())
+                                    },
+                                    label = {
+                                        Text(
+                                            "+${CurrencyHelper.format(addAmt, selectedCurrency)}",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                                        )
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -339,7 +380,7 @@ fun SettingsScreen(
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Language, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -350,21 +391,49 @@ fun SettingsScreen(
                         )
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    val currentOpt = LanguageHelper.getLanguageOption(selectedLanguage)
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        FilterChip(
-                            selected = selectedLanguage == "id",
-                            onClick = { selectedLanguage = "id" },
-                            label = { Text("🇮🇩 Bahasa Indonesia") },
-                            modifier = Modifier.weight(1f).testTag("lang_chip_id")
-                        )
-                        FilterChip(
-                            selected = selectedLanguage == "en",
-                            onClick = { selectedLanguage = "en" },
-                            label = { Text("🇬🇧 English") },
-                            modifier = Modifier.weight(1f).testTag("lang_chip_en")
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = currentOpt.flag, fontSize = 28.sp)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = currentOpt.nativeName,
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                    Text(
+                                        text = "${currentOpt.name} • ${currentOpt.region}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = { showLanguageDialog = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_open_language_selector"),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "${LanguageHelper.getString("select_language_btn", selectedLanguage)} (24 Bahasa Dunia)",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
                         )
                     }
                 }
@@ -392,7 +461,7 @@ fun SettingsScreen(
                         )
                     }
                     Text(
-                        text = "Format nominal disesuaikan dengan kode ISO 4217 tanpa mengonversi nilai asli transaksi.",
+                        text = LanguageHelper.getString("currency_desc", selectedLanguage),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -407,7 +476,7 @@ fun SettingsScreen(
                             onValueChange = {},
                             readOnly = true,
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = currencyDropdownExpanded) },
-                            modifier = Modifier.menuAnchor().fillMaxWidth(),
+                            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
                             shape = RoundedCornerShape(10.dp)
                         )
 
@@ -463,11 +532,11 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "Cadangan Data (Google Drive)",
+                                text = LanguageHelper.getString("backup_drive_title", selectedLanguage),
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                             )
                             Text(
-                                text = "Simpan ke Google Drive / Pulihkan data kas",
+                                text = LanguageHelper.getString("backup_drive_subtitle", selectedLanguage),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -475,12 +544,13 @@ fun SettingsScreen(
                     }
 
                     // Status backup terakhir
-                    val lastBackupTime = remember(lastBackupTimestamp) {
+                    val lastBackupTime = remember(lastBackupTimestamp, selectedLanguage) {
                         if (lastBackupTimestamp > 0) {
-                            val sdf = SimpleDateFormat("dd MMMM yyyy, HH:mm", Locale("id", "ID"))
-                            sdf.format(Date(lastBackupTimestamp))
+                            val locale = if (selectedLanguage.startsWith("en", ignoreCase = true)) Locale.ENGLISH else Locale("id", "ID")
+                            val sdf = SimpleDateFormat("dd MMMM yyyy, HH:mm", locale)
+                            "${LanguageHelper.getString("backup_status_prefix", selectedLanguage)}: ${sdf.format(Date(lastBackupTimestamp))}"
                         } else {
-                            "Belum ada cadangan"
+                            LanguageHelper.getString("backup_status_none", selectedLanguage)
                         }
                     }
 
@@ -502,7 +572,7 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Status: $lastBackupTime",
+                            text = lastBackupTime,
                             style = MaterialTheme.typography.bodySmall.copy(
                                 fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -550,7 +620,7 @@ fun SettingsScreen(
                         Icon(Icons.Default.CloudUpload, contentDescription = null, tint = Color.White)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Cadangkan ke Google Drive",
+                            text = LanguageHelper.getString("btn_backup_drive", selectedLanguage),
                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                             color = Color.White
                         )
@@ -570,7 +640,7 @@ fun SettingsScreen(
                         Icon(Icons.Default.CloudDownload, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Pulihkan Data dari Google Drive",
+                            text = LanguageHelper.getString("btn_restore_drive", selectedLanguage),
                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -590,7 +660,7 @@ fun SettingsScreen(
                                         context.startActivity(webIntent)
                                     }
                                 } catch (e: Exception) {
-                                    Toast.makeText(context, "Aplikasi Google Drive tidak ditemukan", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, LanguageHelper.getString("drive_app_not_found", selectedLanguage), Toast.LENGTH_SHORT).show()
                                 }
                             }
                             .padding(vertical = 4.dp),
@@ -598,14 +668,14 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.OpenInNew,
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Buka Aplikasi Google Drive",
+                            text = LanguageHelper.getString("btn_open_drive_app", selectedLanguage),
                             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -627,29 +697,50 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Smartphone, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Tentang Ponsel & Aplikasi",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                            Text(
-                                text = "KAS TRANSPARAN v1.0.0 by Rafline Dev",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Smartphone,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
                     }
-                    Text(
-                        text = "Buka",
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = LanguageHelper.getString("about_device_app", selectedLanguage),
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "KAS TRANSPARAN v1.0.0 by Rafline Dev",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    FilledTonalButton(
+                        onClick = { showAboutDialog = true },
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                        modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 36.dp)
+                    ) {
+                        Text(
+                            text = LanguageHelper.getString("btn_open", selectedLanguage),
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                            maxLines = 1
+                        )
+                    }
                 }
             }
 
@@ -692,7 +783,7 @@ fun SettingsScreen(
                     Text(text = LanguageHelper.getString("app_version", selectedLanguage), style = MaterialTheme.typography.bodySmall)
                     Text(text = LanguageHelper.getString("developer", selectedLanguage), style = MaterialTheme.typography.bodySmall)
                     Text(text = LanguageHelper.getString("platform", selectedLanguage), style = MaterialTheme.typography.bodySmall)
-                    Text(text = if (selectedLanguage == "en") "Release Year: 2026" else "Tahun Pembuatan: 2026", style = MaterialTheme.typography.bodySmall)
+                    Text(text = LanguageHelper.getString("release_year", selectedLanguage), style = MaterialTheme.typography.bodySmall)
                     Text(text = LanguageHelper.getString("copyright", selectedLanguage), style = MaterialTheme.typography.bodySmall)
                 }
             },
@@ -712,15 +803,15 @@ fun SettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF2E7D32))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Pemulihan Berhasil", fontWeight = FontWeight.Bold)
+                    Text(LanguageHelper.getString("restore_success_title", selectedLanguage), fontWeight = FontWeight.Bold)
                 }
             },
             text = {
-                Text("Berhasil memulihkan $restoredCount data transaksi dan pengaturan kas dari file cadangan Google Drive.")
+                Text(String.format(LanguageHelper.getString("restore_success_msg", selectedLanguage), restoredCount))
             },
             confirmButton = {
                 Button(onClick = { showRestoreSuccessDialog = false }) {
-                    Text("Selesai")
+                    Text(LanguageHelper.getString("btn_done", selectedLanguage))
                 }
             }
         )
@@ -730,18 +821,155 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showRestoreErrorDialog = false },
             title = {
-                Text("Gagal Memulihkan Cadangan", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                Text(LanguageHelper.getString("restore_fail_title", selectedLanguage), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
             },
             text = {
                 Text(restoreErrorMessage)
             },
             confirmButton = {
                 TextButton(onClick = { showRestoreErrorDialog = false }) {
-                    Text("Tutup")
+                    Text(LanguageHelper.getString("btn_close", selectedLanguage))
                 }
             }
         )
     }
+
+    if (showLanguageDialog) {
+        LanguageSelectionDialog(
+            currentLanguage = selectedLanguage,
+            onDismiss = { showLanguageDialog = false },
+            onSelectLanguage = { langCode ->
+                selectedLanguage = langCode
+                viewModel.saveSettings(state.settings.copy(language = langCode)) {}
+                showLanguageDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+fun LanguageSelectionDialog(
+    currentLanguage: String,
+    onDismiss: () -> Unit,
+    onSelectLanguage: (String) -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedRegionTab by remember { mutableStateOf("Semua") }
+
+    val filteredList = remember(searchQuery, selectedRegionTab) {
+        LanguageHelper.SUPPORTED_LANGUAGES.filter { opt ->
+            val matchesRegion = if (selectedRegionTab == "Semua") true else opt.region.equals(selectedRegionTab, ignoreCase = true)
+            val matchesSearch = if (searchQuery.isBlank()) true else {
+                opt.name.contains(searchQuery, ignoreCase = true) ||
+                opt.nativeName.contains(searchQuery, ignoreCase = true) ||
+                opt.code.contains(searchQuery, ignoreCase = true) ||
+                opt.region.contains(searchQuery, ignoreCase = true)
+            }
+            matchesRegion && matchesSearch
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Language, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = LanguageHelper.getString("select_language_btn", currentLanguage),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(420.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Search field
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text(LanguageHelper.getString("search_language_hint", currentLanguage), style = MaterialTheme.typography.bodySmall) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Region filter chips
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(LanguageHelper.REGIONS) { region ->
+                        FilterChip(
+                            selected = selectedRegionTab == region,
+                            onClick = { selectedRegionTab = region },
+                            label = { Text(if (region == "Semua") LanguageHelper.getString("region_all", currentLanguage) else region, style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
+                }
+
+                // List of languages
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(filteredList) { opt ->
+                        val isSelected = opt.code.equals(currentLanguage, ignoreCase = true)
+                        Card(
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectLanguage(opt.code) }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(text = opt.flag, fontSize = 22.sp)
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = opt.nativeName,
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                                            else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "${opt.name} • ${opt.region}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(LanguageHelper.getString("btn_close", currentLanguage))
+            }
+        }
+    )
 }
 
 @Composable

@@ -10,11 +10,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Dashboard
-import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -147,18 +147,14 @@ class MainActivity : ComponentActivity() {
 
             val repository = remember { KasRepository.getInstance(applicationContext) }
             val appSettings by repository.observeSettings("local_admin").collectAsState(initial = com.example.data.model.AppSettings())
-            val themeMode = appSettings?.themeMode ?: "SYSTEM"
+            val themeMode = appSettings?.themeMode ?: "LIGHT"
 
             KasTransparanTheme(themeMode = themeMode) {
                 val isLight = MaterialTheme.colorScheme.background == com.example.ui.theme.AppBackgroundLight
-                // Continuous background adapts cleanly between Dark and Light themes
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .then(
-                            if (isLight) Modifier.background(SoftSkyBlueGradient)
-                            else Modifier.background(MaterialTheme.colorScheme.background)
-                        )
+                        .background(if (isLight) Color.White else MaterialTheme.colorScheme.background)
                 ) {
                     if (mainAlpha > 0f) {
                         Box(
@@ -307,7 +303,9 @@ fun AppMainContent(
                 }
             )
         } else {
+            val isLight = MaterialTheme.colorScheme.background == com.example.ui.theme.AppBackgroundLight
             Scaffold(
+                containerColor = if (isLight) Color.White else MaterialTheme.colorScheme.background,
                 snackbarHost = { SnackbarHost(snackbarHostState) },
                 topBar = {
                     TopAppBar(
@@ -315,7 +313,7 @@ fun AppMainContent(
                             Text(
                                 text = "KAS TRANSPARAN",
                                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.primary
+                                color = if (isLight) Color.White else MaterialTheme.colorScheme.primary
                             )
                         },
                         actions = {
@@ -327,12 +325,12 @@ fun AppMainContent(
                                 Icon(
                                     imageVector = Icons.Default.Settings,
                                     contentDescription = LanguageHelper.getString("settings_title", lang),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    tint = if (isLight) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.surface
+                            containerColor = if (isLight) Color(0xFF0288D1) else MaterialTheme.colorScheme.surface
                         )
                     )
                 },
@@ -413,7 +411,7 @@ fun AppMainContent(
                         NavigationBarItem(
                             selected = currentScreen == MainNavScreen.HISTORY,
                             onClick = { currentScreen = MainNavScreen.HISTORY },
-                            icon = { Icon(Icons.Default.ReceiptLong, contentDescription = null) },
+                            icon = { Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null) },
                             label = {
                                 Text(
                                     text = LanguageHelper.getString("nav_history", lang),
@@ -466,7 +464,9 @@ fun AppMainContent(
                             onPeriodSelected = { period -> viewModel.setPeriodFilter(period) },
                             onNavigateToIncome = { currentScreen = MainNavScreen.INCOME },
                             onNavigateToExpense = { currentScreen = MainNavScreen.EXPENSE },
-                            onNavigateToHistory = { currentScreen = MainNavScreen.HISTORY }
+                            onNavigateToHistory = { currentScreen = MainNavScreen.HISTORY },
+                            onAddInitialBalance = { amount, note -> viewModel.addInitialBalance(amount, note) },
+                            onSetInitialBalance = { amount, note -> viewModel.setInitialBalance(amount, note) }
                         )
                         MainNavScreen.INCOME -> IncomeScreen(
                             state = uiState,

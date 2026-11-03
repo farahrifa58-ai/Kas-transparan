@@ -152,6 +152,8 @@ class KasRepository(
             val list = mutableListOf<Transaction>()
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
+                val createdAtMillis = obj.optLong("createdAtMillis", 0L)
+                val createdAt = if (createdAtMillis > 0L) com.google.firebase.Timestamp(java.util.Date(createdAtMillis)) else null
                 list.add(
                     Transaction(
                         id = obj.optString("id", UUID.randomUUID().toString()),
@@ -165,11 +167,15 @@ class KasRepository(
                         paymentMethod = obj.optString("paymentMethod", "Tunai"),
                         receiptUrl = obj.optString("receiptUrl", ""),
                         status = obj.optString("status", "ACTIVE"),
-                        voidReason = obj.optString("voidReason", "")
+                        voidReason = obj.optString("voidReason", ""),
+                        createdAt = createdAt
                     )
                 )
             }
-            list.sortedByDescending { it.date }
+            list.sortedWith(
+                compareByDescending<Transaction> { it.date }
+                    .thenByDescending { it.createdAt?.toDate()?.time ?: 0L }
+            )
         } catch (e: Exception) {
             emptyList()
         }
@@ -192,6 +198,7 @@ class KasRepository(
                     put("receiptUrl", tx.receiptUrl)
                     put("status", tx.status)
                     put("voidReason", tx.voidReason)
+                    put("createdAtMillis", tx.createdAt?.toDate()?.time ?: System.currentTimeMillis())
                 }
                 array.put(obj)
             }
@@ -247,65 +254,85 @@ class KasRepository(
         }
     }
 
-    fun observeTransactions(userId: String): Flow<List<Transaction>> = flow {
-        // Emit current cached transactions first for instant UI response
-        emit(_transactionsFlow.value)
+    @Volatile
+    private var isFirestoreTransactionsSyncing = false
 
-        val targetUid = if (userId.isNotBlank()) userId else requireUserId()
-        try {
-            db.collection("users").document(targetUid).collection("transactions")
-                .snapshots()
-                .collect { snapshot ->
-                    val remoteList = snapshot.documents.mapNotNull { doc ->
-                        try {
-                            doc.toObject(Transaction::class.java)?.copy(id = doc.id)
-                        } catch (e: Exception) {
-                            null
+    private fun syncFirestoreTransactionsInBackground(userId: String) {
+        if (isFirestoreTransactionsSyncing) return
+        val currentAuthUid = auth?.currentUser?.uid
+        val targetUid = if (!currentAuthUid.isNullOrBlank()) currentAuthUid else if (userId.isNotBlank() && userId != "local_admin") userId else null
+        if (targetUid == null) return
+
+        isFirestoreTransactionsSyncing = true
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                db.collection("users").document(targetUid).collection("transactions")
+                    .snapshots()
+                    .collect { snapshot ->
+                        val remoteList = snapshot.documents.mapNotNull { doc ->
+                            try {
+                                doc.toObject(Transaction::class.java)?.copy(id = doc.id)
+                            } catch (e: Exception) {
+                                null
+                            }
+                        }.sortedWith(
+                            compareByDescending<Transaction> { it.date }
+                                .thenByDescending { it.createdAt?.toDate()?.time ?: 0L }
+                        )
+                        if (remoteList.isNotEmpty()) {
+                            saveTransactionsLocal(remoteList)
                         }
-                    }.sortedByDescending { it.date }
-                    if (remoteList.isNotEmpty() || _transactionsFlow.value.isEmpty()) {
-                        saveTransactionsLocal(remoteList)
                     }
-                    emit(_transactionsFlow.value)
-                }
-        } catch (e: Exception) {
-            Log.w("KasRepository", "Firestore observe transactions fallback: ${e.message}")
-            _transactionsFlow.collect { list ->
-                emit(list)
+            } catch (e: Exception) {
+                Log.w("KasRepository", "Firestore observe transactions error: ${e.message}")
+            } finally {
+                isFirestoreTransactionsSyncing = false
             }
         }
     }
 
-    fun observeSettings(userId: String): Flow<AppSettings?> = flow {
-        // Emit current cached settings first for instant UI response
-        emit(_settingsFlow.value)
+    fun observeTransactions(userId: String): Flow<List<Transaction>> {
+        syncFirestoreTransactionsInBackground(userId)
+        return _transactionsFlow.asStateFlow()
+    }
 
-        val targetUid = if (userId.isNotBlank()) userId else requireUserId()
-        try {
-            db.collection("users").document(targetUid).collection("settings").document("config")
-                .snapshots()
-                .collect { doc ->
-                    if (doc.exists()) {
-                        val remote = doc.toObject(AppSettings::class.java)
-                        if (remote != null) {
-                            saveSettingsLocal(remote)
+    @Volatile
+    private var isFirestoreSettingsSyncing = false
+
+    private fun syncFirestoreSettingsInBackground(userId: String) {
+        if (isFirestoreSettingsSyncing) return
+        val currentAuthUid = auth?.currentUser?.uid
+        val targetUid = if (!currentAuthUid.isNullOrBlank()) currentAuthUid else if (userId.isNotBlank() && userId != "local_admin") userId else null
+        if (targetUid == null) return
+
+        isFirestoreSettingsSyncing = true
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                db.collection("users").document(targetUid).collection("settings").document("config")
+                    .snapshots()
+                    .collect { doc ->
+                        if (doc.exists()) {
+                            val remote = doc.toObject(AppSettings::class.java)
+                            if (remote != null) {
+                                saveSettingsLocal(remote)
+                            }
                         }
                     }
-                    emit(_settingsFlow.value)
-                }
-        } catch (e: Exception) {
-            Log.w("KasRepository", "Firestore observe settings fallback: ${e.message}")
-            _settingsFlow.collect { settings ->
-                emit(settings)
+            } catch (e: Exception) {
+                Log.w("KasRepository", "Firestore observe settings error: ${e.message}")
+            } finally {
+                isFirestoreSettingsSyncing = false
             }
         }
     }
 
-    fun observeAuditLogs(userId: String): Flow<List<AuditLog>> = flow {
-        emit(_auditLogsFlow.value)
-        _auditLogsFlow.collect { logs ->
-            emit(logs)
-        }
+    fun observeSettings(userId: String): Flow<AppSettings?> {
+        syncFirestoreSettingsInBackground(userId)
+        return _settingsFlow.asStateFlow()
+    }
+
+    fun observeAuditLogs(userId: String): Flow<List<AuditLog>> {
+        return _auditLogsFlow.asStateFlow()
     }
 
     suspend fun saveSettings(settings: AppSettings): Result<Unit> {
@@ -336,13 +363,52 @@ class KasRepository(
         return Result.success(Unit)
     }
 
+    suspend fun addInitialBalance(addedAmount: Long, note: String = ""): Result<Long> {
+        val current = _settingsFlow.value
+        val newBalance = (current.initialBalance + addedAmount).coerceAtLeast(0L)
+        val updated = current.copy(initialBalance = newBalance)
+        saveSettings(updated)
+        addAuditLog(
+            transactionId = "INITIAL_BALANCE",
+            action = "UPDATE",
+            details = "Penambahan saldo awal sebesar $addedAmount (Saldo awal baru: $newBalance)",
+            reason = note.ifBlank { "Penambahan saldo awal kas" }
+        )
+        return Result.success(newBalance)
+    }
+
+    suspend fun setInitialBalance(newAmount: Long, note: String = ""): Result<Long> {
+        val current = _settingsFlow.value
+        val prevBalance = current.initialBalance
+        val updated = current.copy(initialBalance = newAmount.coerceAtLeast(0L))
+        saveSettings(updated)
+        addAuditLog(
+            transactionId = "INITIAL_BALANCE",
+            action = "UPDATE",
+            details = "Perubahan saldo awal dari $prevBalance menjadi $newAmount",
+            reason = note.ifBlank { "Penyesuaian saldo awal kas" }
+        )
+        return Result.success(newAmount)
+    }
+
     suspend fun addTransaction(transaction: Transaction): Result<String> {
         val uid = requireUserId()
         val docId = if (transaction.id.isNotBlank()) transaction.id else UUID.randomUUID().toString()
+        val timestampNow = transaction.createdAt ?: com.google.firebase.Timestamp.now()
+        val newTx = transaction.copy(
+            id = docId,
+            userId = uid,
+            status = "ACTIVE",
+            createdAt = timestampNow,
+            updatedAt = timestampNow
+        )
         val currentList = _transactionsFlow.value.toMutableList()
-        val newTx = transaction.copy(id = docId, userId = uid, status = "ACTIVE")
         currentList.add(0, newTx)
-        saveTransactionsLocal(currentList)
+        val sortedList = currentList.sortedWith(
+            compareByDescending<Transaction> { it.date }
+                .thenByDescending { it.createdAt?.toDate()?.time ?: 0L }
+        )
+        saveTransactionsLocal(sortedList)
 
         // Record audit log
         addAuditLog(
@@ -353,30 +419,32 @@ class KasRepository(
         )
 
         // Mirror to Firestore in background
-        try {
-            val docRef = db.collection("users").document(uid).collection("transactions").document(docId)
-            val payload = mutableMapOf<String, Any>(
-                "userId" to uid,
-                "type" to transaction.type,
-                "title" to transaction.title,
-                "amount" to transaction.amount,
-                "category" to transaction.category,
-                "date" to transaction.date,
-                "status" to "ACTIVE",
-                "createdAt" to FieldValue.serverTimestamp(),
-                "updatedAt" to FieldValue.serverTimestamp()
-            )
-            if (transaction.description.isNotBlank()) payload["description"] = transaction.description
-            if (transaction.paymentMethod.isNotBlank()) payload["paymentMethod"] = transaction.paymentMethod
-            if (transaction.receiptUrl.isNotBlank()) payload["receiptUrl"] = transaction.receiptUrl
-            if (transaction.voidReason.isNotBlank()) payload["voidReason"] = transaction.voidReason
+        if (auth?.currentUser != null) {
+            try {
+                val docRef = db.collection("users").document(uid).collection("transactions").document(docId)
+                val payload = mutableMapOf<String, Any>(
+                    "userId" to uid,
+                    "type" to transaction.type,
+                    "title" to transaction.title,
+                    "amount" to transaction.amount,
+                    "category" to transaction.category,
+                    "date" to transaction.date,
+                    "status" to "ACTIVE",
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+                if (transaction.description.isNotBlank()) payload["description"] = transaction.description
+                if (transaction.paymentMethod.isNotBlank()) payload["paymentMethod"] = transaction.paymentMethod
+                if (transaction.receiptUrl.isNotBlank()) payload["receiptUrl"] = transaction.receiptUrl
+                if (transaction.voidReason.isNotBlank()) payload["voidReason"] = transaction.voidReason
 
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    docRef.set(payload).await()
-                } catch (_: Exception) {}
-            }
-        } catch (_: Exception) {}
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        docRef.set(payload).await()
+                    } catch (_: Exception) {}
+                }
+            } catch (_: Exception) {}
+        }
 
         return Result.success(docId)
     }

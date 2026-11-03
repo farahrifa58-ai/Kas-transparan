@@ -203,7 +203,12 @@ object PdfReportGenerator {
         drawHeaderAndSummary()
         drawTableHeader()
 
-        val activeTransactions = transactions.filter { it.status == "ACTIVE" }
+        val activeTransactions = transactions
+            .filter { it.status == "ACTIVE" }
+            .sortedWith(
+                compareBy<Transaction> { it.date }
+                    .thenBy { it.createdAt?.toDate()?.time ?: 0L }
+            )
 
         for (tx in activeTransactions) {
             val isIncome = tx.type == "INCOME"

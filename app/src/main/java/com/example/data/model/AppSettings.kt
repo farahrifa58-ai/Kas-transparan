@@ -14,7 +14,7 @@ data class AppSettings(
     val initialBalance: Long = 0L,
     val currencyCode: String = "IDR",
     val language: String = "id", // "id" or "en"
-    val themeMode: String = "SYSTEM", // "SYSTEM", "LIGHT", "DARK"
+    val themeMode: String = "LIGHT", // "LIGHT", "DARK", "SYSTEM"
     val logoUrl: String = "",
     @ServerTimestamp val updatedAt: Timestamp? = null
 )

@@ -166,7 +166,7 @@ object ExcelExporter {
             writer.write("No,Tanggal,Jam Input,Jenis Transaksi,Nama / Sumber,Kategori,Metode Pembayaran,Pemasukan,Pengeluaran,Status,Keterangan Catatan\n")
 
             // Sort chronologically ascending: oldest at top, newer transactions downwards
-            val chronologicalTransactions = transactions.reversed().sortedWith(
+            val chronologicalTransactions = transactions.sortedWith(
                 compareBy<Transaction> { it.date }
                     .thenBy { it.createdAt?.toDate()?.time ?: 0L }
             )
@@ -375,7 +375,7 @@ object ExcelExporter {
             writer.write("   </Row>\n")
 
             // Sort chronologically ascending: oldest transactions at top (Row 15, No 1), newer transactions downwards
-            val chronologicalTransactions = transactions.reversed().sortedWith(
+            val chronologicalTransactions = transactions.sortedWith(
                 compareBy<Transaction> { it.date }
                     .thenBy { it.createdAt?.toDate()?.time ?: 0L }
             )

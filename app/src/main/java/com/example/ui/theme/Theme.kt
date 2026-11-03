@@ -39,13 +39,13 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun KasTransparanTheme(
-    themeMode: String = "SYSTEM", // "SYSTEM", "LIGHT", "DARK"
+    themeMode: String = "LIGHT", // "LIGHT", "DARK", "SYSTEM"
     content: @Composable () -> Unit,
 ) {
     val darkTheme = when (themeMode) {
-        "LIGHT" -> false
         "DARK" -> true
-        else -> isSystemInDarkTheme()
+        "SYSTEM" -> isSystemInDarkTheme()
+        else -> false // LIGHT mode by default
     }
 
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme

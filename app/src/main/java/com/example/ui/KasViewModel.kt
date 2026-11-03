@@ -245,6 +245,34 @@ class KasViewModel(
         }
     }
 
+    fun addInitialBalance(addedAmount: Long, note: String = "", onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            val result = repository.addInitialBalance(addedAmount, note)
+            _isLoading.value = false
+            if (result.isSuccess) {
+                _feedbackMessage.value = "Saldo awal berhasil ditambahkan!"
+                onSuccess()
+            } else {
+                _feedbackMessage.value = "Gagal menambah saldo awal: ${result.exceptionOrNull()?.localizedMessage}"
+            }
+        }
+    }
+
+    fun setInitialBalance(newAmount: Long, note: String = "", onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            val result = repository.setInitialBalance(newAmount, note)
+            _isLoading.value = false
+            if (result.isSuccess) {
+                _feedbackMessage.value = "Saldo awal berhasil diperbarui!"
+                onSuccess()
+            } else {
+                _feedbackMessage.value = "Gagal memperbarui saldo awal: ${result.exceptionOrNull()?.localizedMessage}"
+            }
+        }
+    }
+
     // Calculations based on filtered transactions
     fun getFilteredTransactions(
         list: List<Transaction>,

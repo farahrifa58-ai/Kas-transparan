@@ -20,13 +20,15 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.TrendingDown
-import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -37,9 +39,20 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,6 +60,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -66,10 +80,14 @@ fun DashboardScreen(
     onPeriodSelected: (PeriodFilter) -> Unit,
     onNavigateToIncome: () -> Unit,
     onNavigateToExpense: () -> Unit,
-    onNavigateToHistory: () -> Unit
+    onNavigateToHistory: () -> Unit,
+    onAddInitialBalance: ((Long, String) -> Unit)? = null,
+    onSetInitialBalance: ((Long, String) -> Unit)? = null
 ) {
     val lang = state.settings.language
     val curr = state.settings.currencyCode
+
+    var showManageInitialBalanceDialog by remember { mutableStateOf(false) }
 
     val activeTransactions = remember(state.transactions, state.selectedPeriod) {
         state.transactions.filter { it.status == "ACTIVE" }
@@ -157,6 +175,8 @@ fun DashboardScreen(
                             onClick = { onPeriodSelected(filter) },
                             label = { Text(label, style = MaterialTheme.typography.labelMedium) },
                             colors = FilterChipDefaults.filterChipColors(
+                                containerColor = if (isLight) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.surface,
+                                labelColor = if (isLight) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                 selectedContainerColor = MaterialTheme.colorScheme.primary,
                                 selectedLabelColor = MaterialTheme.colorScheme.onPrimary
                             ),
@@ -236,26 +256,39 @@ fun DashboardScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Saldo Awal
+                    // Saldo Awal (Clickable to manage / add initial balance)
                     Card(
                         modifier = Modifier
                             .weight(1f)
-                            .testTag("initial_balance_card"),
+                            .testTag("initial_balance_card")
+                            .clickable { showManageInitialBalanceDialog = true },
                         shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
-                            Text(
-                                text = LanguageHelper.getString("initial_balance", lang),
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                ),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = LanguageHelper.getString("initial_balance", lang),
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = LanguageHelper.getString("badge_manage_balance", lang),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = CurrencyHelper.format(initialBalance, curr),
@@ -263,7 +296,7 @@ fun DashboardScreen(
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
                                 ),
-                                color = MaterialTheme.colorScheme.onSurface,
+                                color = MaterialTheme.colorScheme.primary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -282,7 +315,7 @@ fun DashboardScreen(
                         Column(modifier = Modifier.padding(10.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    imageVector = Icons.Default.TrendingUp,
+                                    imageVector = Icons.AutoMirrored.Filled.TrendingUp,
                                     contentDescription = null,
                                     tint = IncomeGreen,
                                     modifier = Modifier.size(14.dp)
@@ -325,7 +358,7 @@ fun DashboardScreen(
                         Column(modifier = Modifier.padding(10.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    imageVector = Icons.Default.TrendingDown,
+                                    imageVector = Icons.AutoMirrored.Filled.TrendingDown,
                                     contentDescription = null,
                                     tint = ExpenseRed,
                                     modifier = Modifier.size(14.dp)
@@ -441,55 +474,87 @@ fun DashboardScreen(
                 }
             }
 
-            // Action Buttons: Catat Kas Masuk & Catat Kas Keluar
+            // Quick Action Buttons: Kas Masuk, Kas Keluar, + Saldo Awal
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Button(
-                        onClick = onNavigateToIncome,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(52.dp)
-                            .testTag("dashboard_btn_income"),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = IncomeGreen),
-                        contentPadding = PaddingValues(horizontal = 8.dp)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = LanguageHelper.getString("quick_add_income", lang),
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Button(
+                            onClick = onNavigateToIncome,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp)
+                                .testTag("dashboard_btn_income"),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = IncomeGreen),
+                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = LanguageHelper.getString("quick_add_income", lang),
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Button(
+                            onClick = onNavigateToExpense,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp)
+                                .testTag("dashboard_btn_expense"),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = ExpenseRed),
+                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Remove, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = LanguageHelper.getString("quick_add_expense", lang),
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
 
-                    Button(
-                        onClick = onNavigateToExpense,
+                    // Button to Add / Manage Initial Balance directly
+                    OutlinedButton(
+                        onClick = { showManageInitialBalanceDialog = true },
                         modifier = Modifier
-                            .weight(1f)
-                            .height(52.dp)
-                            .testTag("dashboard_btn_expense"),
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("dashboard_btn_manage_initial_balance"),
                         shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = ExpenseRed),
-                        contentPadding = PaddingValues(horizontal = 8.dp)
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            contentColor = MaterialTheme.colorScheme.primary
+                        ),
+                        contentPadding = PaddingValues(horizontal = 14.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.Remove, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Default.AccountBalanceWallet,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = LanguageHelper.getString("quick_add_expense", lang),
+                            text = LanguageHelper.getString("quick_manage_initial_balance", lang),
                             style = MaterialTheme.typography.labelLarge.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
                             ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            maxLines = 1
                         )
                     }
                 }
@@ -551,4 +616,234 @@ fun DashboardScreen(
             }
         }
     }
+
+    if (showManageInitialBalanceDialog) {
+        ManageInitialBalanceDialog(
+            currentBalance = initialBalance,
+            currencyCode = curr,
+            lang = lang,
+            onDismiss = { showManageInitialBalanceDialog = false },
+            onAdd = { amount, note ->
+                onAddInitialBalance?.invoke(amount, note)
+                showManageInitialBalanceDialog = false
+            },
+            onSet = { amount, note ->
+                onSetInitialBalance?.invoke(amount, note)
+                showManageInitialBalanceDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+fun ManageInitialBalanceDialog(
+    currentBalance: Long,
+    currencyCode: String,
+    lang: String,
+    onDismiss: () -> Unit,
+    onAdd: (Long, String) -> Unit,
+    onSet: (Long, String) -> Unit
+) {
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Tambah Saldo, 1: Atur Ulang Saldo
+    var inputAmountText by remember { mutableStateOf("") }
+    var noteText by remember { mutableStateOf("") }
+
+    val enteredAmount = CurrencyHelper.parseCleanAmount(inputAmountText)
+    val projectedBalance = if (selectedTab == 0) currentBalance + enteredAmount else enteredAmount
+
+    val presets = listOf(50_000L, 100_000L, 500_000L, 1_000_000L, 5_000_000L)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.AccountBalanceWallet,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = LanguageHelper.getString("dialog_manage_initial_balance_title", lang),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                // Tab Selection
+                TabRow(
+                    selectedTabIndex = selectedTab,
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clip(RoundedCornerShape(10.dp))
+                ) {
+                    Tab(
+                        selected = selectedTab == 0,
+                        onClick = {
+                            selectedTab = 0
+                            inputAmountText = ""
+                        },
+                        text = {
+                            Text(
+                                LanguageHelper.getString("tab_add_initial_balance", lang),
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+                    )
+                    Tab(
+                        selected = selectedTab == 1,
+                        onClick = {
+                            selectedTab = 1
+                            inputAmountText = CurrencyHelper.formatInput(currentBalance.toString())
+                        },
+                        text = {
+                            Text(
+                                LanguageHelper.getString("tab_set_initial_balance", lang),
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+                    )
+                }
+
+                // Current balance display
+                Card(
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = LanguageHelper.getString("current_initial_balance", lang),
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            text = CurrencyHelper.format(currentBalance, currencyCode),
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                // Amount input field
+                OutlinedTextField(
+                    value = inputAmountText,
+                    onValueChange = { inputAmountText = CurrencyHelper.formatInput(it) },
+                    label = {
+                        Text(
+                            if (selectedTab == 0) LanguageHelper.getString("amount_to_add", lang)
+                            else LanguageHelper.getString("amount_new_balance", lang)
+                        )
+                    },
+                    prefix = { Text("${CurrencyHelper.getSymbol(currencyCode)} ") },
+                    placeholder = { Text("0") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_manage_initial_balance")
+                )
+
+                // Quick preset chips
+                Column {
+                    Text(
+                        text = LanguageHelper.getString("quick_presets", lang),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(presets) { preset ->
+                            SuggestionChip(
+                                onClick = {
+                                    val current = CurrencyHelper.parseCleanAmount(inputAmountText)
+                                    val updated = if (selectedTab == 0) current + preset else preset
+                                    inputAmountText = CurrencyHelper.formatInput(updated.toString())
+                                },
+                                label = {
+                                    Text(
+                                        "+${CurrencyHelper.format(preset, currencyCode)}",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                },
+                                colors = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // Live Preview calculation
+                Card(
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = LanguageHelper.getString("new_initial_balance_preview", lang),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = CurrencyHelper.format(projectedBalance, currencyCode),
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        )
+                    }
+                }
+
+                // Note / Keterangan
+                OutlinedTextField(
+                    value = noteText,
+                    onValueChange = { noteText = it },
+                    label = { Text(LanguageHelper.getString("initial_balance_note", lang)) },
+                    placeholder = { Text(LanguageHelper.getString("initial_balance_note_placeholder", lang)) },
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_manage_initial_balance_note")
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (selectedTab == 0) {
+                        if (enteredAmount > 0) {
+                            onAdd(enteredAmount, noteText.trim())
+                        }
+                    } else {
+                        onSet(enteredAmount, noteText.trim())
+                    }
+                },
+                enabled = if (selectedTab == 0) enteredAmount > 0 else true,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.testTag("btn_confirm_manage_initial_balance")
+            ) {
+                Text(
+                    text = if (selectedTab == 0) LanguageHelper.getString("btn_confirm_add_balance", lang)
+                    else LanguageHelper.getString("btn_confirm_set_balance", lang),
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(LanguageHelper.getString("btn_cancel", lang))
+            }
+        }
+    )
 }
