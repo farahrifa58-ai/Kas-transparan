@@ -50,6 +50,7 @@ sealed interface PublicKasUiState {
 class PublicAuthRequiredException : Exception("Autentikasi Google diperlukan untuk mempublikasikan laporan.")
 
 object PublicKasHelper {
+    const val PUBLIC_WEB_BASE_URL = AppSettings.PUBLIC_WEB_BASE_URL
     private const val ID_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
     private const val SECRET_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
     private val secureRandom = SecureRandom()
@@ -85,8 +86,25 @@ object PublicKasHelper {
         return if (cleaned.startsWith("KAS-")) cleaned else if (cleaned.isNotBlank()) "KAS-$cleaned" else ""
     }
 
+    fun sanitizePublicBaseUrl(rawUrl: String?): String {
+        val trimmed = rawUrl?.trim()?.trimEnd('/') ?: ""
+        if (trimmed.isBlank()) return PUBLIC_WEB_BASE_URL
+        val lower = trimmed.lowercase(Locale.ROOT)
+        val isPreviewOrLocal = lower.contains("ais-pre-") ||
+            lower.contains("ais-dev-") ||
+            lower.contains("localhost") ||
+            lower.contains("127.0.0.1") ||
+            lower.contains("10.0.2.2") ||
+            lower.contains(".run.app")
+        return if (isPreviewOrLocal) PUBLIC_WEB_BASE_URL else PUBLIC_WEB_BASE_URL
+    }
+
+    fun buildPublicUrl(publicKasId: String): String {
+        return "${PUBLIC_WEB_BASE_URL.trimEnd('/')}/#/lihat/$publicKasId"
+    }
+
     fun buildPublicUrl(baseUrl: String, publicKasId: String): String {
-        val cleanBase = baseUrl.trim().ifBlank { AppSettings.DEFAULT_PUBLIC_BASE_URL }.trimEnd('/')
+        val cleanBase = sanitizePublicBaseUrl(baseUrl).trimEnd('/')
         return "$cleanBase/#/lihat/$publicKasId"
     }
 

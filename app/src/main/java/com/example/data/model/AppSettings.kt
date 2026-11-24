@@ -23,11 +23,11 @@ data class AppSettings(
     val writeSecret: String = "",
     val publicAutoSync: Boolean = false,
     val publicLastSyncedAt: Long = 0L,
-    val publicBaseUrl: String = DEFAULT_PUBLIC_BASE_URL,
+    val publicBaseUrl: String = PUBLIC_WEB_BASE_URL,
     @ServerTimestamp val updatedAt: Timestamp? = null
 ) {
     companion object {
-        const val DEFAULT_PUBLIC_BASE_URL =
-            "https://ais-pre-cozyojnxqhrnof7n4jttop-79309788941.asia-northeast1.run.app"
+        const val PUBLIC_WEB_BASE_URL = "https://kastransparan.vercel.app"
+        const val DEFAULT_PUBLIC_BASE_URL = PUBLIC_WEB_BASE_URL
     }
 }

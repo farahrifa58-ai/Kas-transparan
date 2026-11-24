@@ -71,9 +71,11 @@ import com.example.data.model.AuditLog
 import com.example.data.model.Transaction
 import com.example.ui.KasUiState
 import com.example.ui.KasViewModel
+import androidx.compose.foundation.BorderStroke
+import com.example.ui.theme.AppScreenBackgroundBrush
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
-import com.example.ui.theme.SoftSkyBlueGradient
+import com.example.ui.theme.SoftCardBorderColor
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import com.example.util.CurrencyHelper
@@ -127,15 +129,10 @@ fun HistoryScreen(
         }
     }
 
-    val isLight = MaterialTheme.colorScheme.background == com.example.ui.theme.AppBackgroundLight
-
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .then(
-                if (isLight) Modifier.background(SoftSkyBlueGradient)
-                else Modifier.background(MaterialTheme.colorScheme.background)
-            )
+            .background(AppScreenBackgroundBrush)
     ) {
         Column(
             modifier = Modifier
@@ -373,12 +370,13 @@ fun HistoryItemCard(
             .fillMaxWidth()
             .clickable { onClick() }
             .testTag("history_item_${tx.id}"),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isVoid) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
             else MaterialTheme.colorScheme.surface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isVoid) 0.dp else 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isVoid) 0.dp else 4.dp),
+        border = BorderStroke(1.dp, if (isVoid) Color.Transparent else SoftCardBorderColor)
     ) {
         Row(
             modifier = Modifier

@@ -142,8 +142,9 @@ class KasRepository(
                     writeSecret = json.optString("writeSecret", ""),
                     publicAutoSync = json.optBoolean("publicAutoSync", false),
                     publicLastSyncedAt = json.optLong("publicLastSyncedAt", 0L),
-                    publicBaseUrl = json.optString("publicBaseUrl", AppSettings.DEFAULT_PUBLIC_BASE_URL)
-                        .ifBlank { AppSettings.DEFAULT_PUBLIC_BASE_URL }
+                    publicBaseUrl = PublicKasHelper.sanitizePublicBaseUrl(
+                        json.optString("publicBaseUrl", AppSettings.PUBLIC_WEB_BASE_URL)
+                    )
                 )
             } catch (_: Exception) {
                 AppSettings()
@@ -151,12 +152,15 @@ class KasRepository(
         }
 
         // Auto-generate and permanently persist unique Public Kas ID + 24-char local writeSecret on first run
+        // Also migrate any legacy preview/localhost base URL to the fixed production PUBLIC_WEB_BASE_URL.
         val needsId = !PublicKasHelper.isValidPublicKasId(parsed.publicKasId)
         val needsSecret = !PublicKasHelper.isValidWriteSecret(parsed.writeSecret)
-        return if (needsId || needsSecret) {
+        val needsBaseMigration = parsed.publicBaseUrl != AppSettings.PUBLIC_WEB_BASE_URL
+        return if (needsId || needsSecret || needsBaseMigration) {
             val initialized = parsed.copy(
                 publicKasId = if (needsId) PublicKasHelper.generatePublicKasId() else parsed.publicKasId,
-                writeSecret = if (needsSecret) PublicKasHelper.generateWriteSecret() else parsed.writeSecret
+                writeSecret = if (needsSecret) PublicKasHelper.generateWriteSecret() else parsed.writeSecret,
+                publicBaseUrl = AppSettings.PUBLIC_WEB_BASE_URL
             )
             saveSettingsLocal(initialized)
             initialized
@@ -180,7 +184,7 @@ class KasRepository(
             val safeSettings = settings.copy(
                 publicKasId = validPublicId,
                 writeSecret = validWriteSecret,
-                publicBaseUrl = settings.publicBaseUrl.ifBlank { AppSettings.DEFAULT_PUBLIC_BASE_URL }
+                publicBaseUrl = PublicKasHelper.sanitizePublicBaseUrl(settings.publicBaseUrl)
             )
             val json = JSONObject().apply {
                 put("userId", safeSettings.userId)
@@ -618,7 +622,7 @@ class KasRepository(
             publicKasId = preservedId,
             writeSecret = preservedSecret,
             publicLastSyncedAt = maxOf(settings.publicLastSyncedAt, _settingsFlow.value.publicLastSyncedAt),
-            publicBaseUrl = settings.publicBaseUrl.ifBlank { AppSettings.DEFAULT_PUBLIC_BASE_URL }
+            publicBaseUrl = PublicKasHelper.sanitizePublicBaseUrl(settings.publicBaseUrl)
         )
         saveSettingsLocal(mergedSettings)
 
@@ -1016,8 +1020,9 @@ class KasRepository(
                     writeSecret = if (PublicKasHelper.isValidWriteSecret(backupWriteSecret)) backupWriteSecret else existingWriteSecret,
                     publicAutoSync = sObj.optBoolean("publicAutoSync", false),
                     publicLastSyncedAt = sObj.optLong("publicLastSyncedAt", 0L),
-                    publicBaseUrl = sObj.optString("publicBaseUrl", AppSettings.DEFAULT_PUBLIC_BASE_URL)
-                        .ifBlank { AppSettings.DEFAULT_PUBLIC_BASE_URL }
+                    publicBaseUrl = PublicKasHelper.sanitizePublicBaseUrl(
+                        sObj.optString("publicBaseUrl", AppSettings.PUBLIC_WEB_BASE_URL)
+                    )
                 )
                 saveSettingsLocal(restoredSettings)
             }

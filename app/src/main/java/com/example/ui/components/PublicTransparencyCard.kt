@@ -28,8 +28,6 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -61,6 +59,11 @@ import com.example.data.model.PublicKasHelper
 import com.example.ui.KasUiState
 import com.example.ui.KasViewModel
 import com.example.ui.theme.IncomeGreen
+import com.example.ui.theme.SoftCardBorderColor
+import com.example.ui.theme.SoftSuccessBg
+import com.example.ui.theme.SoftSuccessFg
+import com.example.ui.theme.accentPublicReport
+import com.example.ui.theme.isAppLightTheme
 import com.example.util.WhatsAppShareHelper
 
 @Composable
@@ -68,16 +71,19 @@ fun PublicTransparencyCard(
     state: KasUiState,
     viewModel: KasViewModel,
     onOpenPublicPreview: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    embedded: Boolean = false
 ) {
     val context = LocalContext.current
+    val publicAccent = accentPublicReport()
+    val isLight = isAppLightTheme
 
     val settings = state.settings
     val lang = settings.language
     val isEn = lang.startsWith("en", ignoreCase = true)
     val publicKasId = settings.publicKasId.ifBlank { "KAS-PENDING" }
-    val publicUrl = remember(settings.publicBaseUrl, publicKasId) {
-        PublicKasHelper.buildPublicUrl(settings.publicBaseUrl, publicKasId)
+    val publicUrl = remember(publicKasId) {
+        PublicKasHelper.buildPublicUrl(publicKasId)
     }
 
     val activeTransactions = remember(state.transactions) {
@@ -99,54 +105,49 @@ fun PublicTransparencyCard(
     var showOpenOtherIdDialog by remember { mutableStateOf(false) }
     var inputOtherKasId by remember { mutableStateOf("") }
 
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("public_transparency_card"),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
-    ) {
+    val cardBody: @Composable () -> Unit = {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .then(if (embedded) Modifier else Modifier.padding(16.dp)),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFFE0F2FE)),
-                    contentAlignment = Alignment.Center
+            if (!embedded) {
+                // Header (shown when standalone on Dashboard / Report)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Public,
-                        contentDescription = null,
-                        tint = Color(0xFF0284C7),
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (isEn) "Online Public Report (Member Link)" else "Laporan Publik Online (Link Anggota)",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
-                        ),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = if (isEn) "1-Link Read-Only transparency • Offline-first" else "Transparansi 1 Link Mode Hanya Lihat • Offline-First",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(publicAccent.container),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Public,
+                            contentDescription = null,
+                            tint = publicAccent.tint,
+                            modifier = Modifier.size(23.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (isEn) "Online Public Report (Member Link)" else "Laporan Publik Online (Link Anggota)",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (isEn) "1-Link Read-Only transparency • Offline-first" else "Transparansi 1 Link Mode Hanya Lihat • Offline-First",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 
@@ -156,7 +157,7 @@ fun PublicTransparencyCard(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
                     .background(
-                        if (isPublished) Color(0xFFECFDF5) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                        if (isPublished) SoftSuccessBg else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                     )
                     .padding(horizontal = 12.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -170,7 +171,7 @@ fun PublicTransparencyCard(
                         modifier = Modifier
                             .size(8.dp)
                             .clip(CircleShape)
-                            .background(if (isPublished) Color(0xFF10B981) else Color(0xFF94A3B8))
+                            .background(if (isPublished) IncomeGreen else MaterialTheme.colorScheme.onSurfaceVariant)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
@@ -179,7 +180,7 @@ fun PublicTransparencyCard(
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 12.sp
                         ),
-                        color = if (isPublished) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (isPublished) SoftSuccessFg else MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -188,7 +189,7 @@ fun PublicTransparencyCard(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                        .background(publicAccent.container)
                         .padding(horizontal = 8.dp, vertical = 3.dp)
                 ) {
                     Text(
@@ -197,7 +198,7 @@ fun PublicTransparencyCard(
                             fontWeight = FontWeight.ExtraBold,
                             fontFamily = FontFamily.Monospace
                         ),
-                        color = MaterialTheme.colorScheme.primary
+                        color = publicAccent.tint
                     )
                 }
             }
@@ -231,10 +232,10 @@ fun PublicTransparencyCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                     .border(
                         width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                        color = SoftCardBorderColor,
                         shape = RoundedCornerShape(12.dp)
                     )
                     .clickable {
@@ -252,7 +253,7 @@ fun PublicTransparencyCard(
                 Icon(
                     imageVector = Icons.Default.Link,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = publicAccent.tint,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
@@ -281,7 +282,7 @@ fun PublicTransparencyCard(
                     Icon(
                         imageVector = Icons.Default.ContentCopy,
                         contentDescription = if (isEn) "Copy link" else "Salin tautan",
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = publicAccent.tint,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -290,34 +291,33 @@ fun PublicTransparencyCard(
             // Primary Action Button: Sinkronkan / Update Laporan ke Web (Direct without login)
             val isBusy = state.isPublishingPublic
             Button(
-                onClick = {
-                    viewModel.publishPublicReport()
-                },
+                onClick = { viewModel.publishPublicReport() },
                 enabled = !isBusy,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp)
                     .testTag("btn_sync_public_report"),
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
             ) {
                 if (isBusy) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(18.dp),
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onPrimary,
                         strokeWidth = 2.dp
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = if (isEn) "Syncing to Web..." else "Menyinkronkan ke Web...",
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
                     )
                 } else {
                     Icon(
                         imageVector = Icons.Default.CloudSync,
                         contentDescription = null,
-                        tint = Color.White,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -327,7 +327,6 @@ fun PublicTransparencyCard(
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.5.sp
                         ),
-                        color = Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -335,6 +334,7 @@ fun PublicTransparencyCard(
             }
 
             // Copy Link & Share to WhatsApp Row
+            val waButtonColor = if (isLight) Color(0xFF1F9D55) else Color(0xFF217A49)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -385,7 +385,10 @@ fun PublicTransparencyCard(
                         .height(48.dp)
                         .testTag("btn_share_public_whatsapp"),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = waButtonColor,
+                        contentColor = Color.White
+                    ),
                     contentPadding = PaddingValues(horizontal = 8.dp)
                 ) {
                     Icon(
@@ -405,7 +408,7 @@ fun PublicTransparencyCard(
                 }
             }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
             // Toggle: Sinkronisasi Otomatis saat Online
             Row(
@@ -499,6 +502,20 @@ fun PublicTransparencyCard(
         }
     }
 
+    if (embedded) {
+        Box(modifier = modifier.fillMaxWidth().testTag("public_transparency_card")) {
+            cardBody()
+        }
+    } else {
+        SoftElevatedCard(
+            modifier = modifier.testTag("public_transparency_card"),
+            cornerRadius = 20.dp,
+            elevation = 5.dp
+        ) {
+            cardBody()
+        }
+    }
+
     if (showOpenOtherIdDialog) {
         AlertDialog(
             onDismissRequest = { showOpenOtherIdDialog = false },
@@ -511,8 +528,8 @@ fun PublicTransparencyCard(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = if (isEn) "Enter a Public Cash ID (e.g. KAS-8A49B2) to monitor cash balance and transactions in Read-Only mode."
-                        else "Masukkan ID Kas Publik (contoh: KAS-8A49B2) untuk memantau saldo & riwayat transaksi dalam Mode Hanya Lihat.",
+                        text = if (isEn) "Enter a Public Cash ID (e.g. KAS-8A49B2X7) to monitor cash balance and transactions in Read-Only mode."
+                        else "Masukkan ID Kas Publik (contoh: KAS-8A49B2X7) untuk memantau saldo & riwayat transaksi dalam Mode Hanya Lihat.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -520,9 +537,9 @@ fun PublicTransparencyCard(
                         value = inputOtherKasId,
                         onValueChange = { inputOtherKasId = it.uppercase() },
                         label = { Text("ID Kas Publik") },
-                        placeholder = { Text("KAS-8A49B2") },
+                        placeholder = { Text("KAS-8A49B2X7") },
                         singleLine = true,
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("input_lookup_public_kas_id")

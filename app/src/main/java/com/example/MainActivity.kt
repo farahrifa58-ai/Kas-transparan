@@ -78,6 +78,8 @@ import com.example.ui.screens.ReportScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.signOutAdmin
 import com.example.ui.theme.KasTransparanTheme
+import com.example.ui.theme.SoftTopBarColor
+import com.example.ui.theme.SoftTopBarContentColor
 import com.example.util.LanguageHelper
 import com.google.firebase.FirebaseApp
 import kotlinx.coroutines.delay
@@ -136,11 +138,10 @@ class MainActivity : ComponentActivity() {
                         label = "main_alpha"
                     )
 
-                    val isLight = MaterialTheme.colorScheme.background == com.example.ui.theme.AppBackgroundLight
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(if (isLight) Color.White else MaterialTheme.colorScheme.background)
+                            .background(MaterialTheme.colorScheme.background)
                     ) {
                         if (mainAlpha > 0f) {
                             Box(
@@ -182,19 +183,19 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun SplashScreen() {
-    val blueWhiteGradient = Brush.verticalGradient(
+    val softTealGradient = Brush.verticalGradient(
         colors = listOf(
-            Color(0xFF0277BD),
-            Color(0xFF29B6F6),
-            Color(0xFFE1F5FE),
-            Color(0xFFFFFFFF)
+            Color(0xFF0F766E),
+            Color(0xFF14B8A6),
+            Color(0xFFCCFBF1),
+            Color(0xFFF1F5F9)
         )
     )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(blueWhiteGradient),
+            .background(softTealGradient),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -225,7 +226,7 @@ fun SplashScreen() {
                     letterSpacing = 0.5.sp,
                     fontSize = 28.sp
                 ),
-                color = Color(0xFF01579B)
+                color = Color(0xFF0F524C)
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -237,7 +238,7 @@ fun SplashScreen() {
                     letterSpacing = 0.5.sp,
                     fontSize = 16.sp
                 ),
-                color = Color(0xFF0277BD)
+                color = Color(0xFF0F766E)
             )
         }
     }
@@ -313,17 +314,19 @@ fun AppMainContent(
                 onOpenPublicPreview = { kasId -> activePublicPreviewId = kasId }
             )
         } else {
-            val isLight = MaterialTheme.colorScheme.background == com.example.ui.theme.AppBackgroundLight
             Scaffold(
-                containerColor = if (isLight) Color.White else MaterialTheme.colorScheme.background,
+                containerColor = MaterialTheme.colorScheme.background,
                 snackbarHost = { SnackbarHost(snackbarHostState) },
                 topBar = {
                     TopAppBar(
                         title = {
                             Text(
                                 text = "KAS TRANSPARAN",
-                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                                color = if (isLight) Color.White else MaterialTheme.colorScheme.primary
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 0.4.sp
+                                ),
+                                color = SoftTopBarContentColor
                             )
                         },
                         actions = {
@@ -334,19 +337,19 @@ fun AppMainContent(
                                 Icon(
                                     imageVector = Icons.Default.Settings,
                                     contentDescription = LanguageHelper.getString("settings_title", lang),
-                                    tint = if (isLight) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                    tint = SoftTopBarContentColor
                                 )
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = if (isLight) Color(0xFF0288D1) else MaterialTheme.colorScheme.surface
+                            containerColor = SoftTopBarColor
                         )
                     )
                 },
                 bottomBar = {
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 8.dp,
+                        tonalElevation = 6.dp,
                         modifier = Modifier.testTag("main_bottom_nav")
                     ) {
                         NavigationBarItem(
@@ -365,7 +368,8 @@ fun AppMainContent(
                             alwaysShowLabel = true,
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.primaryContainer
                             ),
                             modifier = Modifier.testTag("nav_item_dashboard")
                         )
@@ -385,8 +389,9 @@ fun AppMainContent(
                             },
                             alwaysShowLabel = true,
                             colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary
+                                selectedIconColor = com.example.ui.theme.IncomeGreen,
+                                selectedTextColor = com.example.ui.theme.IncomeGreen,
+                                indicatorColor = com.example.ui.theme.SoftSuccessBg
                             ),
                             modifier = Modifier.testTag("nav_item_income")
                         )
@@ -406,8 +411,9 @@ fun AppMainContent(
                             },
                             alwaysShowLabel = true,
                             colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary
+                                selectedIconColor = com.example.ui.theme.ExpenseRed,
+                                selectedTextColor = com.example.ui.theme.ExpenseRed,
+                                indicatorColor = com.example.ui.theme.SoftDangerBg
                             ),
                             modifier = Modifier.testTag("nav_item_expense")
                         )
@@ -427,8 +433,9 @@ fun AppMainContent(
                             },
                             alwaysShowLabel = true,
                             colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary
+                                selectedIconColor = MaterialTheme.colorScheme.secondary,
+                                selectedTextColor = MaterialTheme.colorScheme.secondary,
+                                indicatorColor = MaterialTheme.colorScheme.secondaryContainer
                             ),
                             modifier = Modifier.testTag("nav_item_history")
                         )
@@ -448,8 +455,9 @@ fun AppMainContent(
                             },
                             alwaysShowLabel = true,
                             colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary
+                                selectedIconColor = MaterialTheme.colorScheme.tertiary,
+                                selectedTextColor = MaterialTheme.colorScheme.tertiary,
+                                indicatorColor = MaterialTheme.colorScheme.tertiaryContainer
                             ),
                             modifier = Modifier.testTag("nav_item_report")
                         )

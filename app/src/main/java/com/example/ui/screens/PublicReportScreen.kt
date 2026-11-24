@@ -69,9 +69,12 @@ import com.example.data.model.PublicKasReport
 import com.example.data.model.PublicKasTransaction
 import com.example.data.model.PublicKasUiState
 import com.example.data.repository.KasRepository
+import com.example.ui.theme.AppScreenBackgroundBrush
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
-import com.example.ui.theme.SoftSkyBlueGradient
+import com.example.ui.theme.SoftHeroGradient
+import com.example.ui.theme.SoftSuccessBg
+import com.example.ui.theme.SoftSuccessFg
 import com.example.util.CurrencyHelper
 
 /**
@@ -95,15 +98,10 @@ fun PublicReportScreen(
 
     var selectedTab by remember { mutableStateOf("ALL") } // "ALL", "income", "expense"
     var searchQuery by remember { mutableStateOf("") }
-    val isLight = MaterialTheme.colorScheme.background == com.example.ui.theme.AppBackgroundLight
-
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .then(
-                if (isLight) Modifier.background(SoftSkyBlueGradient)
-                else Modifier.background(MaterialTheme.colorScheme.background)
-            )
+            .background(AppScreenBackgroundBrush)
             .statusBarsPadding()
             .navigationBarsPadding(),
         contentAlignment = Alignment.TopCenter
@@ -134,11 +132,11 @@ fun PublicReportScreen(
                             )
                         }
                     }
-                    // Soft Green Badge: Mode Hanya Lihat • Real-Time
+                    // Soft Green Badge: Mode Hanya Lihat • Real-Time (Light & Dark Adaptive)
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
-                            .background(Color(0xFFDCFCE7))
+                            .background(SoftSuccessBg)
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                             .testTag("public_readonly_badge"),
                         verticalAlignment = Alignment.CenterVertically
@@ -147,7 +145,7 @@ fun PublicReportScreen(
                             modifier = Modifier
                                 .size(8.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF16A34A))
+                                .background(IncomeGreen)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
@@ -156,7 +154,7 @@ fun PublicReportScreen(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 11.5.sp
                             ),
-                            color = Color(0xFF15803D)
+                            color = SoftSuccessFg
                         )
                     }
                 }
@@ -325,11 +323,7 @@ private fun PublicReportContent(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(Color(0xFF0284C7), Color(0xFF0369A1))
-                            )
-                        )
+                        .background(SoftHeroGradient)
                         .padding(20.dp)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

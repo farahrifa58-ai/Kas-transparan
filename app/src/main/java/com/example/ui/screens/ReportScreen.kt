@@ -61,12 +61,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.BorderStroke
 import com.example.ui.KasUiState
 import com.example.ui.KasViewModel
 import com.example.ui.components.PublicTransparencyCard
+import com.example.ui.theme.AppScreenBackgroundBrush
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
-import com.example.ui.theme.SoftSkyBlueGradient
+import com.example.ui.theme.SoftCardBorderColor
+import com.example.ui.theme.SoftDangerBg
+import com.example.ui.theme.SoftDangerFg
+import com.example.ui.theme.SoftSuccessBg
+import com.example.ui.theme.SoftSuccessFg
+import com.example.ui.theme.isAppLightTheme
 import com.example.util.CurrencyHelper
 import com.example.util.ExcelExportResult
 import com.example.util.ExcelExporter
@@ -175,15 +182,12 @@ fun ReportScreen(
     }
     val initialBalance = state.settings.initialBalance
     val finalBalance = initialBalance + totalIncome - totalExpense
-    val isLight = MaterialTheme.colorScheme.background == com.example.ui.theme.AppBackgroundLight
+    val isLight = isAppLightTheme
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .then(
-                if (isLight) Modifier.background(SoftSkyBlueGradient)
-                else Modifier.background(MaterialTheme.colorScheme.background)
-            )
+            .background(AppScreenBackgroundBrush)
     ) {
         LazyColumn(
             modifier = Modifier
@@ -245,7 +249,10 @@ fun ReportScreen(
                             .height(52.dp)
                             .testTag("btn_share_report_main"),
                         shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isLight) Color(0xFF1F9D55) else Color(0xFF217A49),
+                            contentColor = Color.White
+                        )
                     ) {
                         Icon(imageVector = Icons.Default.Share, contentDescription = null, tint = Color.White)
                         Spacer(modifier = Modifier.width(10.dp))
@@ -315,35 +322,36 @@ fun ReportScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("pdf_download_success_card"),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
-                        shape = RoundedCornerShape(14.dp)
+                        colors = CardDefaults.cardColors(containerColor = SoftDangerBg),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, ExpenseRed.copy(alpha = 0.25f))
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     imageVector = Icons.Default.DownloadDone,
                                     contentDescription = null,
-                                    tint = Color(0xFFC62828),
+                                    tint = SoftDangerFg,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = if (isEn) "PDF Report Saved to Downloads" else "Laporan PDF Berhasil Disimpan ke Download",
                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                                    color = Color(0xFFB71C1C)
+                                    color = SoftDangerFg
                                 )
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = lastPdfResult?.savedPathDisplay ?: "",
                                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                                color = Color(0xFFC62828)
+                                color = SoftDangerFg
                             )
                             Text(
                                 text = if (isEn) "File is ready in device Download folder. Tap below to open or share."
                                 else "File sudah ada di folder Download HP. Ketuk tombol di bawah untuk membuka atau membagikan.",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFFD32F2F)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(10.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -353,8 +361,8 @@ fun ReportScreen(
                                             PdfReportGenerator.openOrSharePdf(context, res)
                                         }
                                     },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
-                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = ExpenseRed),
+                                    shape = RoundedCornerShape(10.dp),
                                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                                 ) {
                                     Text(
@@ -377,34 +385,35 @@ fun ReportScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("excel_download_success_card"),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
-                        shape = RoundedCornerShape(14.dp)
+                        colors = CardDefaults.cardColors(containerColor = SoftSuccessBg),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, IncomeGreen.copy(alpha = 0.25f))
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     imageVector = Icons.Default.DownloadDone,
                                     contentDescription = null,
-                                    tint = IncomeGreen,
+                                    tint = SoftSuccessFg,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = LanguageHelper.getString("excel_saved_download", lang),
                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                                    color = Color(0xFF1B5E20)
+                                    color = SoftSuccessFg
                                 )
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = lastExcelResult?.savedPathDisplay ?: "",
                                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                                color = Color(0xFF2E7D32)
+                                color = SoftSuccessFg
                             )
                             Text(
                                 text = LanguageHelper.getString("excel_open_hint", lang),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF388E3C)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(10.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -453,9 +462,10 @@ fun ReportScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("report_preview_card"),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+                    elevation = CardDefaults.cardElevation(defaultElevation = 5.dp),
+                    border = BorderStroke(1.dp, SoftCardBorderColor)
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
                         Text(

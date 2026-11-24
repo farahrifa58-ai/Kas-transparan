@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/lihat/(.*)", "destination": "/index.html" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

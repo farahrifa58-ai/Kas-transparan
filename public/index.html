@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kas Transparan — Laporan Publik (Mode Hanya Lihat)</title>
+  <meta name="description" content="Pantau saldo dan riwayat transaksi kas kelompok secara transparan dan real-time (Mode Hanya Lihat)." />
+  <style>
+    :root {
+      --bg-top: #e8f4f8;
+      --bg-mid: #f1f5f9;
+      --bg-bottom: #f8fafc;
+      --card: #ffffff;
+      --card-border: #dbe5f0;
+      --card-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+      --primary: #0f766e;
+      --primary-2: #115e59;
+      --primary-soft: #e6f4f1;
+      --income: #15803d;
+      --income-bg: #dcfce7;
+      --expense: #be123c;
+      --expense-bg: #ffe4e6;
+      --text: #132238;
+      --muted: #64748b;
+      --chip-bg: #ffffff;
+      --input-bg: #ffffff;
+      --cat-bg: #f1f5f9;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-top: #111c26;
+        --bg-mid: #0e141b;
+        --bg-bottom: #0b1016;
+        --card: #18222d;
+        --card-border: #2a3b4d;
+        --card-shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
+        --primary: #4fd1c5;
+        --primary-2: #0f766e;
+        --primary-soft: rgba(79, 209, 197, 0.14);
+        --income: #5fd18a;
+        --income-bg: rgba(95, 209, 138, 0.16);
+        --expense: #f08080;
+        --expense-bg: rgba(240, 128, 128, 0.16);
+        --text: #e6edf5;
+        --muted: #93a6bc;
+        --chip-bg: #18222d;
+        --input-bg: #18222d;
+        --cat-bg: #22303f;
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body {
+      min-height: 100vh;
+      background: linear-gradient(180deg, var(--bg-top) 0%, var(--bg-mid) 45%, var(--bg-bottom) 100%);
+      color: var(--text);
+      padding: 18px 16px 32px;
+      display: flex;
+      justify-content: center;
+    }
+    .container { width: 100%; max-width: 600px; }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; margin-bottom: 14px; flex-wrap: wrap;
+    }
+    .badge-readonly {
+      display: inline-flex; align-items: center; gap: 7px;
+      background: var(--income-bg); color: var(--income);
+      border: 1px solid rgba(21, 128, 61, 0.18);
+      padding: 6px 12px; border-radius: 999px;
+      font-size: 12px; font-weight: 700;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--income);
+      animation: pulse 1.8s infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+    .kas-id-pill {
+      background: var(--card); color: var(--primary);
+      border: 1px solid var(--card-border); border-radius: 10px;
+      padding: 5px 10px; font-size: 12px; font-weight: 800; font-family: ui-monospace, monospace;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+    }
+    .header-title { font-size: 24px; font-weight: 800; margin-bottom: 4px; color: var(--text); }
+    .header-desc { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+    .header-updated { font-size: 12px; color: var(--muted); margin-bottom: 16px; font-weight: 500; }
+    .hero-card {
+      background: linear-gradient(135deg, #0f766e 0%, #115e59 55%, #134e4a 100%);
+      color: #ffffff; border-radius: 22px; padding: 22px;
+      box-shadow: 0 14px 32px rgba(15, 118, 110, 0.24);
+      margin-bottom: 16px;
+    }
+    .hero-label { font-size: 13px; opacity: 0.9; font-weight: 600; margin-bottom: 6px; }
+    .hero-balance { font-size: 32px; font-weight: 900; letter-spacing: -0.5px; margin-bottom: 16px; word-break: break-word; }
+    .hero-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .hero-stat {
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 14px; padding: 12px;
+    }
+    .hero-stat-label { font-size: 11px; opacity: 0.92; margin-bottom: 4px; }
+    .hero-stat-val { font-size: 15px; font-weight: 800; }
+    .hero-stat-val.in { color: #bbf7d0; }
+    .hero-stat-val.out { color: #fecdd3; }
+    .filters { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+    .chip {
+      border: 1px solid var(--card-border); background: var(--chip-bg); color: var(--text);
+      padding: 9px 14px; border-radius: 12px; font-size: 13px; font-weight: 700;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .chip.active { background: #0f766e; color: #fff; border-color: #0f766e; }
+    .chip.active-in { background: #15803d; color: #fff; border-color: #15803d; }
+    .chip.active-out { background: #be123c; color: #fff; border-color: #be123c; }
+    .search-box {
+      width: 100%; padding: 12px 14px; border-radius: 14px;
+      border: 1px solid var(--card-border); background: var(--input-bg); color: var(--text);
+      font-size: 14px; margin-bottom: 16px; outline: none;
+    }
+    .search-box:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+    .section-title { font-size: 15px; font-weight: 800; margin-bottom: 10px; color: var(--text); }
+    .tx-list { display: flex; flex-direction: column; gap: 10px; }
+    .tx-card {
+      background: var(--card); border-radius: 16px; padding: 14px 16px;
+      box-shadow: var(--card-shadow);
+      border: 1px solid var(--card-border);
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    }
+    .tx-title { font-size: 14.5px; font-weight: 700; margin-bottom: 4px; color: var(--text); }
+    .tx-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); }
+    .tx-cat { background: var(--cat-bg); color: var(--text); padding: 2px 8px; border-radius: 6px; font-weight: 600; }
+    .tx-notes { font-size: 12px; color: var(--muted); margin-top: 5px; line-height: 1.4; }
+    .tx-amount { font-size: 14.5px; font-weight: 800; white-space: nowrap; }
+    .tx-amount.in { color: var(--income); }
+    .tx-amount.out { color: var(--expense); }
+    .state-card {
+      background: var(--card); border-radius: 22px; padding: 32px 24px;
+      text-align: center; box-shadow: var(--card-shadow);
+      border: 1px solid var(--card-border);
+      margin-top: 24px;
+    }
+    .state-card h2 { font-size: 19px; margin-bottom: 8px; color: var(--text); }
+    .state-card p { font-size: 14px; color: var(--muted); line-height: 1.5; }
+    .lookup-form { display: flex; gap: 8px; margin-top: 16px; }
+    .lookup-form input {
+      flex: 1; padding: 11px 14px; border-radius: 12px;
+      border: 1px solid var(--card-border); background: var(--input-bg); color: var(--text);
+      font-size: 14px; text-transform: uppercase; outline: none;
+    }
+    .lookup-form button {
+      background: #0f766e; color: #fff; border: none; border-radius: 12px;
+      padding: 0 18px; font-weight: 700; cursor: pointer;
+    }
+    .footer { text-align: center; font-size: 11.5px; color: var(--muted); margin-top: 24px; padding-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <div class="container" id="app">
+    <div class="state-card">
+      <h2>Memuat Laporan Kas...</h2>
+      <p>Menghubungkan ke server real-time Kas Transparan.</p>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
+    import { getFirestore, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
+
+    const PUBLIC_WEB_BASE_URL = "https://kastransparan.vercel.app";
+    const firebaseConfig = {
+      apiKey: "AIzaSyB1drC5xgTs_eVBPNo9yvNJSuFf-BqaS4U",
+      projectId: "gen-lang-client-0676480047"
+    };
+    const DATABASE_ID = "ai-studio-android-kastrans-b4c11abb-2e43-4c68-a162-33b6cf65e42e";
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app, DATABASE_ID);
+
+    let currentReport = null;
+    let currentFilter = "ALL";
+    let currentSearch = "";
+    let unsubscribe = null;
+
+    function normalizeKasId(raw) {
+      const cleaned = String(raw || "").trim().toUpperCase().replace(/[^A-Z0-9\-]/g, "");
+      if (!cleaned) return "";
+      return cleaned.startsWith("KAS-") ? cleaned : "KAS-" + cleaned;
+    }
+
+    function extractKasId() {
+      // 1. Hash router: #/lihat/{publicKasId} or #lihat/{publicKasId}
+      const hash = window.location.hash || "";
+      const hashMatch = hash.match(/^#\/?lihat\/([A-Za-z0-9\-]+)/i);
+      if (hashMatch && hashMatch[1]) return normalizeKasId(hashMatch[1]);
+
+      // 2. Query parameter: ?lihat={publicKasId}
+      const params = new URLSearchParams(window.location.search);
+      const fromQuery = params.get("lihat");
+      if (fromQuery) return normalizeKasId(fromQuery);
+
+      // 3. Path fallback: /lihat/{publicKasId}
+      const pathMatch = (window.location.pathname || "").match(/\/lihat\/([A-Za-z0-9\-]+)/i);
+      if (pathMatch && pathMatch[1]) return normalizeKasId(pathMatch[1]);
+
+      return "";
+    }
+
+    function formatCurrency(amount, currency = "IDR") {
+      const n = Number(amount || 0);
+      try {
+        if (currency === "IDR") {
+          return "Rp " + Math.abs(n).toLocaleString("id-ID");
+        }
+        return new Intl.NumberFormat("id-ID", { style: "currency", currency, maximumFractionDigits: 0 }).format(Math.abs(n));
+      } catch {
+        return `${currency} ${Math.abs(n).toLocaleString("id-ID")}`;
+      }
+    }
+
+    function formatSignedBalance(amount, currency = "IDR") {
+      const n = Number(amount || 0);
+      return (n < 0 ? "-" : "") + formatCurrency(n, currency);
+    }
+
+    function formatTimestamp(ts) {
+      if (!ts) return "Baru saja diperbarui";
+      const d = typeof ts.toDate === "function" ? ts.toDate() : new Date(ts);
+      return "Terakhir diperbarui: " + d.toLocaleDateString("id-ID", {
+        day: "2-digit", month: "short", year: "numeric"
+      }) + ", " + d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+    }
+
+    function escapeHtml(str) {
+      return String(str || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function renderLookupPrompt(message) {
+      const root = document.getElementById("app");
+      root.innerHTML = `
+        <div class="topbar">
+          <div class="badge-readonly"><span class="dot"></span> Mode Hanya Lihat • Real-Time</div>
+        </div>
+        <div class="state-card">
+          <h2>Laporan Kas Transparan</h2>
+          <p>${escapeHtml(message)}</p>
+          <form class="lookup-form" id="lookupForm">
+            <input id="kasIdInput" placeholder="Masukkan ID Kas (cth: KAS-8A49B2X7)" required />
+            <button type="submit">Buka</button>
+          </form>
+        </div>
+        <div class="footer">${escapeHtml(PUBLIC_WEB_BASE_URL.replace(/^https?:\/\//, ""))} • Mode Hanya Lihat</div>
+      `;
+      document.getElementById("lookupForm").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const normalized = normalizeKasId(document.getElementById("kasIdInput").value);
+        if (normalized) {
+          window.location.hash = "#/lihat/" + normalized;
+        }
+      });
+    }
+
+    function renderReport(kasId) {
+      const r = currentReport;
+      if (!r) return;
+      const curr = r.currencyCode || "IDR";
+      const txs = Array.isArray(r.transactions) ? r.transactions : [];
+      const q = currentSearch.trim().toLowerCase();
+      const filtered = txs.filter((tx) => {
+        const type = String(tx.type || "income").toLowerCase();
+        if (currentFilter !== "ALL" && type !== currentFilter) return false;
+        if (!q) return true;
+        return (
+          String(tx.title || "").toLowerCase().includes(q) ||
+          String(tx.category || "").toLowerCase().includes(q) ||
+          String(tx.notes || "").toLowerCase().includes(q) ||
+          String(tx.date || "").toLowerCase().includes(q)
+        );
+      });
+
+      const txHtml = filtered.length === 0
+        ? `<div class="state-card" style="margin-top:8px;padding:24px;"><p>Tidak ada transaksi yang sesuai.</p></div>`
+        : filtered.map((tx) => {
+            const isIncome = String(tx.type || "income").toLowerCase() === "income";
+            return `
+              <div class="tx-card">
+                <div>
+                  <div class="tx-title">${escapeHtml(tx.title || "Transaksi")}</div>
+                  <div class="tx-meta">
+                    <span class="tx-cat">${escapeHtml(tx.category || "Umum")}</span>
+                    <span>${escapeHtml(tx.date || "")}</span>
+                  </div>
+                  ${tx.notes ? `<div class="tx-notes">${escapeHtml(tx.notes)}</div>` : ""}
+                </div>
+                <div class="tx-amount ${isIncome ? "in" : "out"}">
+                  ${isIncome ? "+ " : "- "}${escapeHtml(formatCurrency(tx.amount, curr))}
+                </div>
+              </div>
+            `;
+          }).join("");
+
+      const root = document.getElementById("app");
+      root.innerHTML = `
+        <div class="topbar">
+          <div class="badge-readonly"><span class="dot"></span> Mode Hanya Lihat • Real-Time</div>
+          <div class="kas-id-pill">${escapeHtml(kasId)}</div>
+        </div>
+        <div class="header-title">${escapeHtml(r.groupName || "Kas Transparan")}</div>
+        ${r.description ? `<div class="header-desc">${escapeHtml(r.description)}</div>` : ""}
+        <div class="header-updated">${escapeHtml(formatTimestamp(r.updatedAt))}</div>
+
+        <div class="hero-card">
+          <div class="hero-label">Saldo Kas Saat Ini</div>
+          <div class="hero-balance">${escapeHtml(formatSignedBalance(r.totalBalance, curr))}</div>
+          <div class="hero-grid">
+            <div class="hero-stat">
+              <div class="hero-stat-label">Total Pemasukan</div>
+              <div class="hero-stat-val in">+ ${escapeHtml(formatCurrency(r.totalIncome, curr))}</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat-label">Total Pengeluaran</div>
+              <div class="hero-stat-val out">- ${escapeHtml(formatCurrency(r.totalExpense, curr))}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="filters">
+          <button class="chip ${currentFilter === "ALL" ? "active" : ""}" data-filter="ALL">Semua (${txs.length})</button>
+          <button class="chip ${currentFilter === "income" ? "active-in" : ""}" data-filter="income">Pemasukan</button>
+          <button class="chip ${currentFilter === "expense" ? "active-out" : ""}" data-filter="expense">Pengeluaran</button>
+        </div>
+
+        <input class="search-box" id="searchInput" type="search" placeholder="Cari iuran, pengeluaran, kategori, atau catatan..." value="${escapeHtml(currentSearch)}" />
+
+        <div class="section-title">Rincian Transaksi (${filtered.length})</div>
+        <div class="tx-list">${txHtml}</div>
+
+        <div class="footer">Kas Transparan • Laporan Publik Hanya Lihat (Read-Only, Tanpa Login)</div>
+      `;
+
+      document.querySelectorAll(".chip").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          currentFilter = btn.getAttribute("data-filter");
+          renderReport(kasId);
+        });
+      });
+
+      const searchEl = document.getElementById("searchInput");
+      searchEl.addEventListener("input", (e) => {
+        currentSearch = e.target.value;
+        renderReport(kasId);
+        const updatedEl = document.getElementById("searchInput");
+        updatedEl.focus();
+        updatedEl.setSelectionRange(currentSearch.length, currentSearch.length);
+      });
+    }
+
+    function startListening() {
+      if (unsubscribe) { unsubscribe(); unsubscribe = null; }
+      const kasId = extractKasId();
+      if (!kasId) {
+        renderLookupPrompt("Masukkan ID Kas Publik dari bendahara untuk melihat laporan saldo dan transaksi secara real-time.");
+        return;
+      }
+
+      document.title = `Laporan Kas ${kasId} — Kas Transparan (Hanya Lihat)`;
+      const ref = doc(db, "public_kas", kasId);
+      unsubscribe = onSnapshot(ref, (snap) => {
+        if (!snap.exists()) {
+          currentReport = null;
+          renderLookupPrompt("Laporan kas tidak ditemukan atau belum dipublikasikan oleh bendahara.");
+        } else {
+          const data = snap.data();
+          // Strictly read display-only fields; never read or expose writeSecret
+          currentReport = {
+            groupName: data.groupName || "Kas Transparan",
+            description: data.description || "",
+            currencyCode: data.currencyCode || "IDR",
+            totalBalance: data.totalBalance || 0,
+            totalIncome: data.totalIncome || 0,
+            totalExpense: data.totalExpense || 0,
+            updatedAt: data.updatedAt || null,
+            transactions: Array.isArray(data.transactions) ? data.transactions : []
+          };
+          renderReport(kasId);
+        }
+      }, (err) => {
+        console.error(err);
+        renderLookupPrompt("Laporan kas tidak ditemukan atau belum dipublikasikan oleh bendahara.");
+      });
+    }
+
+    window.addEventListener("hashchange", startListening);
+    startListening();
+  </script>
+</body>
+</html>

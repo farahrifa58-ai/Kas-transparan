@@ -58,9 +58,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
+import androidx.compose.foundation.BorderStroke
 import com.example.ui.KasUiState
 import com.example.ui.KasViewModel
+import com.example.ui.theme.AppScreenBackgroundBrush
 import com.example.ui.theme.ExpenseRed
+import com.example.ui.theme.SoftDangerBg
 import com.example.util.CurrencyHelper
 import com.example.util.LanguageHelper
 import java.text.SimpleDateFormat
@@ -133,10 +136,7 @@ fun ExpenseScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .then(
-                if (isLight) Modifier.background(com.example.ui.theme.SoftSkyBlueGradient)
-                else Modifier.background(MaterialTheme.colorScheme.background)
-            )
+            .background(AppScreenBackgroundBrush)
     ) {
         Column(
             modifier = Modifier
@@ -148,8 +148,10 @@ fun ExpenseScreen(
             // Header Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = ExpenseRed.copy(alpha = 0.12f))
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = SoftDangerBg),
+                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+                border = BorderStroke(1.dp, ExpenseRed.copy(alpha = 0.25f))
             ) {
                 Row(
                     modifier = Modifier.padding(16.dp),

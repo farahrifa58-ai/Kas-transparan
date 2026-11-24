@@ -69,10 +69,13 @@ import com.example.data.model.Transaction
 import com.example.ui.KasUiState
 import com.example.ui.KasViewModel
 import com.example.ui.PeriodFilter
+import androidx.compose.foundation.BorderStroke
 import com.example.ui.components.PublicTransparencyCard
+import com.example.ui.theme.AppScreenBackgroundBrush
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
-import com.example.ui.theme.SoftSkyBlueGradient
+import com.example.ui.theme.SoftCardBorderColor
+import com.example.ui.theme.SoftHeroGradient
 import com.example.util.CurrencyHelper
 import com.example.util.LanguageHelper
 
@@ -107,15 +110,10 @@ fun DashboardScreen(
 
     val initialBalance = state.settings.initialBalance
     val finalBalance = initialBalance + totalIncome - totalExpense
-    val isLight = MaterialTheme.colorScheme.background == com.example.ui.theme.AppBackgroundLight
-
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .then(
-                if (isLight) Modifier.background(SoftSkyBlueGradient)
-                else Modifier.background(MaterialTheme.colorScheme.background)
-            )
+            .background(AppScreenBackgroundBrush)
     ) {
         LazyColumn(
             modifier = Modifier
@@ -179,8 +177,8 @@ fun DashboardScreen(
                             onClick = { onPeriodSelected(filter) },
                             label = { Text(label, style = MaterialTheme.typography.labelMedium) },
                             colors = FilterChipDefaults.filterChipColors(
-                                containerColor = if (isLight) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.surface,
-                                labelColor = if (isLight) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                 selectedContainerColor = MaterialTheme.colorScheme.primary,
                                 selectedLabelColor = MaterialTheme.colorScheme.onPrimary
                             ),
@@ -190,18 +188,23 @@ fun DashboardScreen(
                 }
             }
 
-            // Hero Card: Saldo Kas Saat Ini
+            // Hero Card: Saldo Kas Saat Ini (Soft Adaptive Gradient)
             item {
                 ElevatedCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("current_balance_card"),
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(22.dp),
                     colors = CardDefaults.elevatedCardColors(
-                        containerColor = MaterialTheme.colorScheme.primary
+                        containerColor = Color.Transparent
                     ),
-                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
+                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = 6.dp)
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(SoftHeroGradient)
+                    ) {
                     Column(
                         modifier = Modifier.padding(20.dp)
                     ) {
@@ -248,8 +251,9 @@ fun DashboardScreen(
                         Text(
                             text = LanguageHelper.getString("balance_formula", lang),
                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
-                            color = Color.White.copy(alpha = 0.8f)
+                            color = Color.White.copy(alpha = 0.82f)
                         )
+                    }
                     }
                 }
             }
@@ -266,9 +270,10 @@ fun DashboardScreen(
                             .weight(1f)
                             .testTag("initial_balance_card")
                             .clickable { showManageInitialBalanceDialog = true },
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                        border = BorderStroke(1.dp, SoftCardBorderColor)
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             Row(
@@ -312,9 +317,10 @@ fun DashboardScreen(
                         modifier = Modifier
                             .weight(1f)
                             .testTag("total_income_card"),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                        border = BorderStroke(1.dp, SoftCardBorderColor)
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -355,9 +361,10 @@ fun DashboardScreen(
                         modifier = Modifier
                             .weight(1f)
                             .testTag("total_expense_card"),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                        border = BorderStroke(1.dp, SoftCardBorderColor)
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -401,9 +408,10 @@ fun DashboardScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("cashflow_chart_card"),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    elevation = CardDefaults.cardElevation(defaultElevation = 5.dp),
+                    border = BorderStroke(1.dp, SoftCardBorderColor)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(

@@ -37,7 +37,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
                     android:scheme="https"
-                    android:host="ais-pre-cozyojnxqhrnof7n4jttop-79309788941.asia-northeast1.run.app" />
+                    android:host="kastransparan.vercel.app" />
             </intent-filter>
         </activity>
 
