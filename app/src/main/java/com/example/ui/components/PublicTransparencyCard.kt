@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,24 +18,22 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudSync
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.rounded.CloudSync
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -47,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -60,8 +60,6 @@ import com.example.ui.KasUiState
 import com.example.ui.KasViewModel
 import com.example.ui.theme.IncomeGreen
 import com.example.ui.theme.SoftCardBorderColor
-import com.example.ui.theme.SoftSuccessBg
-import com.example.ui.theme.SoftSuccessFg
 import com.example.ui.theme.accentPublicReport
 import com.example.ui.theme.isAppLightTheme
 import com.example.util.WhatsAppShareHelper
@@ -85,6 +83,9 @@ fun PublicTransparencyCard(
     val publicUrl = remember(publicKasId) {
         PublicKasHelper.buildPublicUrl(publicKasId)
     }
+    val displayShortUrl = remember(publicUrl) {
+        publicUrl.removePrefix("https://").removePrefix("http://")
+    }
 
     val activeTransactions = remember(state.transactions) {
         state.transactions.filter { it.status == "ACTIVE" }
@@ -98,9 +99,8 @@ fun PublicTransparencyCard(
     val totalBalance = settings.initialBalance + totalIncome - totalExpense
 
     val isPublished = settings.publicLastSyncedAt > 0L
-    val syncStatusText = remember(settings.publicLastSyncedAt, lang) {
-        PublicKasHelper.formatSyncTimestamp(settings.publicLastSyncedAt, lang)
-    }
+    val isBusy = state.isPublishingPublic
+    val waButtonColor = if (isLight) Color(0xFF1F9D55) else Color(0xFF217A49)
 
     var showOpenOtherIdDialog by remember { mutableStateOf(false) }
     var inputOtherKasId by remember { mutableStateOf("") }
@@ -109,235 +109,178 @@ fun PublicTransparencyCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(if (embedded) Modifier else Modifier.padding(16.dp)),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .then(if (embedded) Modifier else Modifier.padding(horizontal = 14.dp, vertical = 12.dp)),
+            verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            if (!embedded) {
-                // Header (shown when standalone on Dashboard / Report)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(publicAccent.container),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Public,
-                            contentDescription = null,
-                            tint = publicAccent.tint,
-                            modifier = Modifier.size(23.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = if (isEn) "Online Public Report (Member Link)" else "Laporan Publik Online (Link Anggota)",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
-                            ),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = if (isEn) "1-Link Read-Only transparency • Offline-first" else "Transparansi 1 Link Mode Hanya Lihat • Offline-First",
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-
-            // Status Pill + Permanent Public Kas ID Badge
+            // BARIS 1: Header Ringkas (Globe kecil + Judul + Badge ID KAS-XXXXXX + Titik Status)
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(
-                        if (isPublished) SoftSuccessBg else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                    )
-                    .padding(horizontal = 12.dp, vertical = 9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(if (isPublished) IncomeGreen else MaterialTheme.colorScheme.onSurfaceVariant)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = syncStatusText,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 12.sp
-                        ),
-                        color = if (isPublished) SoftSuccessFg else MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(publicAccent.container)
-                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                ) {
-                    Text(
-                        text = publicKasId,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.ExtraBold,
-                            fontFamily = FontFamily.Monospace
-                        ),
-                        color = publicAccent.tint
-                    )
-                }
-            }
-
-            // Automatic Local Group Security Key indicator (never shows secret token)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 2.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Lock,
-                    contentDescription = null,
-                    tint = IncomeGreen,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = if (isEn)
-                        "Group Security Key Active • Direct sync without login"
-                    else
-                        "Kunci Pengaman Kelompok Aktif • Sinkron langsung tanpa login",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            // Read-Only Public URL Box
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                    .border(
-                        width = 1.dp,
-                        color = SoftCardBorderColor,
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    .clickable {
-                        WhatsAppShareHelper.copyTextToClipboard(
-                            context = context,
-                            label = "Link Laporan Publik",
-                            text = publicUrl,
-                            toastMessage = if (isEn) "Public link copied!" else "Tautan laporan publik disalin!"
-                        )
-                    }
-                    .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
-                    .testTag("public_link_box"),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Link,
-                    contentDescription = null,
-                    tint = publicAccent.tint,
-                    modifier = Modifier.size(18.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(publicAccent.container),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Public,
+                        contentDescription = null,
+                        tint = publicAccent.tint,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = publicUrl,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.5.sp
+                    text = if (isEn) "Online Public Report" else "Laporan Publik Online",
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.5.sp
                     ),
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(
-                    onClick = {
-                        WhatsAppShareHelper.copyTextToClipboard(
-                            context = context,
-                            label = "Link Laporan Publik",
-                            text = publicUrl,
-                            toastMessage = if (isEn) "Public link copied!" else "Tautan laporan publik disalin!"
-                        )
-                    },
-                    modifier = Modifier.testTag("btn_copy_url_icon")
+                Spacer(modifier = Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(publicAccent.container)
+                        .padding(horizontal = 7.dp, vertical = 3.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.ContentCopy,
-                        contentDescription = if (isEn) "Copy link" else "Salin tautan",
-                        tint = publicAccent.tint,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-
-            // Primary Action Button: Sinkronkan / Update Laporan ke Web (Direct without login)
-            val isBusy = state.isPublishingPublic
-            Button(
-                onClick = { viewModel.publishPublicReport() },
-                enabled = !isBusy,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
-                    .testTag("btn_sync_public_report"),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            ) {
-                if (isBusy) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = if (isEn) "Syncing to Web..." else "Menyinkronkan ke Web...",
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.CloudSync,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isEn) "Sync / Update Report to Web" else "Sinkronkan / Update Laporan ke Web",
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.5.sp
+                        text = publicKasId,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.5.sp
                         ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        color = publicAccent.tint,
+                        maxLines = 1
                     )
                 }
+                Spacer(modifier = Modifier.width(7.dp))
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isPublished) IncomeGreen
+                            else MaterialTheme.colorScheme.outlineVariant
+                        )
+                )
             }
 
-            // Copy Link & Share to WhatsApp Row
-            val waButtonColor = if (isLight) Color(0xFF1F9D55) else Color(0xFF217A49)
+            // BARIS 2: Kotak URL Singkat (+ tombol Salin di dalam) + Tombol Padat "Update Web"
             Row(
                 modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                        .border(
+                            width = 1.dp,
+                            color = SoftCardBorderColor,
+                            shape = RoundedCornerShape(11.dp)
+                        )
+                        .clickable {
+                            WhatsAppShareHelper.copyTextToClipboard(
+                                context = context,
+                                label = "Link Laporan Publik",
+                                text = publicUrl,
+                                toastMessage = if (isEn) "Public link copied!" else "Tautan laporan publik disalin!"
+                            )
+                        }
+                        .padding(start = 10.dp, end = 4.dp)
+                        .testTag("public_link_box"),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = displayShortUrl,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                WhatsAppShareHelper.copyTextToClipboard(
+                                    context = context,
+                                    label = "Link Laporan Publik",
+                                    text = publicUrl,
+                                    toastMessage = if (isEn) "Public link copied!" else "Tautan laporan publik disalin!"
+                                )
+                            }
+                            .testTag("btn_copy_url_icon"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.ContentCopy,
+                            contentDescription = if (isEn) "Copy link" else "Salin tautan",
+                            tint = publicAccent.tint,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = { viewModel.publishPublicReport() },
+                    enabled = !isBusy,
+                    modifier = Modifier
+                        .height(42.dp)
+                        .testTag("btn_sync_public_report"),
+                    shape = RoundedCornerShape(11.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                ) {
+                    if (isBusy) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(15.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.CloudSync,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = if (isBusy) (if (isEn) "Syncing" else "Proses") else (if (isEn) "Update Web" else "Update Web"),
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        ),
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+
+            // BARIS 3: Tombol Bagikan & Opsi Cepat sejajar 1 baris ("Salin WA", "Kirim WA", "Pratinjau", ikon Cari)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 OutlinedButton(
                     onClick = {
@@ -350,21 +293,26 @@ fun PublicTransparencyCard(
                     },
                     modifier = Modifier
                         .weight(1f)
-                        .height(48.dp)
+                        .height(38.dp)
                         .testTag("btn_copy_link_wa"),
-                    shape = RoundedCornerShape(12.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp)
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, SoftCardBorderColor),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.ContentCopy,
+                        imageVector = Icons.Rounded.ContentCopy,
                         contentDescription = null,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(14.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = if (isEn) "Copy Link" else "Salin Link WA",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        text = if (isEn) "Copy WA" else "Salin WA",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.5.sp
+                        ),
                         maxLines = 1,
+                        softWrap = false,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
@@ -382,56 +330,107 @@ fun PublicTransparencyCard(
                     },
                     modifier = Modifier
                         .weight(1f)
-                        .height(48.dp)
+                        .height(38.dp)
                         .testTag("btn_share_public_whatsapp"),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = waButtonColor,
                         contentColor = Color.White
                     ),
-                    contentPadding = PaddingValues(horizontal = 8.dp)
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Share,
+                        imageVector = Icons.Rounded.Share,
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(14.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = if (isEn) "WhatsApp" else "Bagikan ke WA",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        text = if (isEn) "Send WA" else "Kirim WA",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.5.sp
+                        ),
                         color = Color.White,
                         maxLines = 1,
+                        softWrap = false,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+
+                OutlinedButton(
+                    onClick = { onOpenPublicPreview(publicKasId) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                        .testTag("btn_preview_public_readonly"),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, SoftCardBorderColor),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Visibility,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (isEn) "Preview" else "Pratinjau",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.5.sp
+                        ),
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Surface(
+                    onClick = {
+                        inputOtherKasId = ""
+                        showOpenOtherIdDialog = true
+                    },
+                    modifier = Modifier
+                        .size(38.dp)
+                        .testTag("btn_lookup_other_kas"),
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    border = BorderStroke(1.dp, SoftCardBorderColor)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Rounded.Search,
+                            contentDescription = if (isEn) "Lookup Another Cash ID" else "Cek ID Kas Lain",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
             }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
 
-            // Toggle: Sinkronisasi Otomatis saat Online
+            // BARIS 4: Footer Kartu Tipis (Sinkronisasi Otomatis + Switch)
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(28.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                    Text(
-                        text = if (isEn) "Auto-Sync When Online" else "Sinkronisasi Otomatis saat Online",
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp
-                        ),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = if (isEn) "Automatically update web report whenever transactions change while online"
-                        else "Otomatis perbarui laporan web tiap transaksi ditambah/diubah saat online",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    text = if (isEn) "Auto-Sync Online" else "Sinkronisasi Otomatis",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
                 Switch(
                     checked = settings.publicAutoSync,
                     onCheckedChange = { enabled ->
@@ -441,63 +440,10 @@ fun PublicTransparencyCard(
                         checkedThumbColor = Color.White,
                         checkedTrackColor = IncomeGreen
                     ),
-                    modifier = Modifier.testTag("switch_public_auto_sync")
+                    modifier = Modifier
+                        .scale(0.8f)
+                        .testTag("switch_public_auto_sync")
                 )
-            }
-
-            // Preview Read-Only Mode & Open Another Group ID
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = { onOpenPublicPreview(publicKasId) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(44.dp)
-                        .testTag("btn_preview_public_readonly"),
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Visibility,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (isEn) "Read-Only Preview" else "Pratinjau Warga",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                OutlinedButton(
-                    onClick = {
-                        inputOtherKasId = ""
-                        showOpenOtherIdDialog = true
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(44.dp)
-                        .testTag("btn_lookup_other_kas"),
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (isEn) "Open ID Kas" else "Cek ID Kas Lain",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
             }
         }
     }
@@ -509,8 +455,8 @@ fun PublicTransparencyCard(
     } else {
         SoftElevatedCard(
             modifier = modifier.testTag("public_transparency_card"),
-            cornerRadius = 20.dp,
-            elevation = 5.dp
+            cornerRadius = 18.dp,
+            elevation = 4.dp
         ) {
             cardBody()
         }

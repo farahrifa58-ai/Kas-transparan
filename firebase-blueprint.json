@@ -78,6 +78,19 @@
         "transactions": { "type": "array", "description": "Newest-first array of up to 2000 public transactions containing id, title, category, type ('income'|'expense'), amount, date, notes" }
       },
       "required": ["writeSecret", "groupName", "totalBalance", "totalIncome", "totalExpense", "updatedAt", "transactions"]
+    },
+    "ActivationCode": {
+      "title": "ActivationCode",
+      "description": "Single-device license activation code stored in primary Firestore database",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "description": "Optional activation code string when document ID is auto-generated" },
+        "appId": { "type": "string", "description": "Target product identifier (e.g. kas_transparan)" },
+        "status": { "type": "string", "enum": ["unused", "available", "ready", "active", "used", "revoked", "blocked"], "description": "Lifecycle state of the activation code" },
+        "deviceId": { "type": "string", "description": "Hardware-stable device ID bound to this license code" },
+        "activatedAt": { "type": "string", "format": "date-time", "description": "Timestamp when activated via FieldValue.serverTimestamp()" }
+      },
+      "required": ["status"]
     }
   },
   "firestore": {
@@ -96,6 +109,10 @@
     "/public_kas/{publicKasId}": {
       "schema": { "$ref": "#/entities/PublicKasReport" },
       "description": "Public read-only real-time cash report accessible by exact KAS-XXXXXXXX ID without login; updates protected by immutable writeSecret"
+    },
+    "/activation_codes/{codeId}": {
+      "schema": { "$ref": "#/entities/ActivationCode" },
+      "description": "1-device license activation codes validated and bound on first activation"
     }
   }
 }

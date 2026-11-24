@@ -22,16 +22,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
-import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
-import androidx.compose.material.icons.outlined.Analytics
-import androidx.compose.material.icons.outlined.ArrowCircleDown
-import androidx.compose.material.icons.outlined.ArrowCircleUp
-import androidx.compose.material.icons.outlined.GridView
-import androidx.compose.material.icons.rounded.Analytics
-import androidx.compose.material.icons.rounded.ArrowCircleDown
-import androidx.compose.material.icons.rounded.ArrowCircleUp
-import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -77,6 +67,11 @@ import com.example.data.repository.KasRepository
 import com.example.data.repository.LicenseGateState
 import com.example.data.repository.LicenseRepository
 import com.example.ui.KasViewModel
+import com.example.ui.components.NavBarChartIcon
+import com.example.ui.components.NavCircleArrowDownIcon
+import com.example.ui.components.NavCircleArrowUpIcon
+import com.example.ui.components.NavLayoutGridIcon
+import com.example.ui.components.NavReceiptTextIcon
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.ExpenseScreen
 import com.example.ui.screens.HistoryScreen
@@ -406,14 +401,15 @@ fun AppMainContent(
                             modifier = Modifier.testTag("main_bottom_nav")
                         ) {
                             val isDash = currentScreen == MainNavScreen.DASHBOARD
+                            val dashColor = if (isDash) MaterialTheme.colorScheme.primary else unselectedTint
                             NavigationBarItem(
                                 selected = isDash,
                                 onClick = { currentScreen = MainNavScreen.DASHBOARD },
                                 icon = {
-                                    Icon(
-                                        imageVector = if (isDash) Icons.Rounded.GridView else Icons.Outlined.GridView,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(23.dp)
+                                    NavLayoutGridIcon(
+                                        active = isDash,
+                                        tint = dashColor,
+                                        size = 23.dp
                                     )
                                 },
                                 label = {
@@ -440,14 +436,15 @@ fun AppMainContent(
                             )
 
                             val isIncome = currentScreen == MainNavScreen.INCOME
+                            val incomeColor = if (isIncome) com.example.ui.theme.IncomeGreen else unselectedTint
                             NavigationBarItem(
                                 selected = isIncome,
                                 onClick = { currentScreen = MainNavScreen.INCOME },
                                 icon = {
-                                    Icon(
-                                        imageVector = if (isIncome) Icons.Rounded.ArrowCircleDown else Icons.Outlined.ArrowCircleDown,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(23.dp)
+                                    NavCircleArrowDownIcon(
+                                        active = isIncome,
+                                        tint = incomeColor,
+                                        size = 23.dp
                                     )
                                 },
                                 label = {
@@ -474,14 +471,15 @@ fun AppMainContent(
                             )
 
                             val isExpense = currentScreen == MainNavScreen.EXPENSE
+                            val expenseColor = if (isExpense) com.example.ui.theme.ExpenseRed else unselectedTint
                             NavigationBarItem(
                                 selected = isExpense,
                                 onClick = { currentScreen = MainNavScreen.EXPENSE },
                                 icon = {
-                                    Icon(
-                                        imageVector = if (isExpense) Icons.Rounded.ArrowCircleUp else Icons.Outlined.ArrowCircleUp,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(23.dp)
+                                    NavCircleArrowUpIcon(
+                                        active = isExpense,
+                                        tint = expenseColor,
+                                        size = 23.dp
                                     )
                                 },
                                 label = {
@@ -508,14 +506,15 @@ fun AppMainContent(
                             )
 
                             val isHistory = currentScreen == MainNavScreen.HISTORY
+                            val historyColor = if (isHistory) MaterialTheme.colorScheme.secondary else unselectedTint
                             NavigationBarItem(
                                 selected = isHistory,
                                 onClick = { currentScreen = MainNavScreen.HISTORY },
                                 icon = {
-                                    Icon(
-                                        imageVector = if (isHistory) Icons.AutoMirrored.Rounded.ReceiptLong else Icons.AutoMirrored.Outlined.ReceiptLong,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(23.dp)
+                                    NavReceiptTextIcon(
+                                        active = isHistory,
+                                        tint = historyColor,
+                                        size = 23.dp
                                     )
                                 },
                                 label = {
@@ -542,14 +541,15 @@ fun AppMainContent(
                             )
 
                             val isReport = currentScreen == MainNavScreen.REPORT
+                            val reportColor = if (isReport) MaterialTheme.colorScheme.tertiary else unselectedTint
                             NavigationBarItem(
                                 selected = isReport,
                                 onClick = { currentScreen = MainNavScreen.REPORT },
                                 icon = {
-                                    Icon(
-                                        imageVector = if (isReport) Icons.Rounded.Analytics else Icons.Outlined.Analytics,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(23.dp)
+                                    NavBarChartIcon(
+                                        active = isReport,
+                                        tint = reportColor,
+                                        size = 23.dp
                                     )
                                 },
                                 label = {

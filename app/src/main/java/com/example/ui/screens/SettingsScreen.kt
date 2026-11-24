@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,7 +32,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudDownload
@@ -67,7 +65,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -84,9 +81,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -98,9 +95,9 @@ import com.example.data.model.PublicKasHelper
 import com.example.data.repository.LicenseRepository
 import com.example.ui.KasUiState
 import com.example.ui.KasViewModel
-import com.example.ui.components.ExpandableSettingsCard
 import com.example.ui.components.PublicTransparencyCard
-import com.example.ui.components.SoftElevatedCard
+import com.example.ui.components.SettingsModalCard
+import com.example.ui.components.SettingsPopupDialog
 import com.example.ui.theme.AppScreenBackgroundBrush
 import com.example.ui.theme.IncomeGreen
 import com.example.ui.theme.SoftCardBorderColor
@@ -122,6 +119,17 @@ import com.example.util.LanguageHelper
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private enum class SettingsModalSection {
+    PROFILE,
+    APPEARANCE,
+    PUBLIC_REPORT,
+    DOMAIN,
+    CURRENCY,
+    BACKUP,
+    TUTORIAL,
+    ABOUT
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -147,17 +155,9 @@ fun SettingsScreen(
 
     val isEn = selectedLanguage.startsWith("en", ignoreCase = true)
 
-    // Independent expandable states for each Settings card
-    var expandedProfile by remember { mutableStateOf(false) }
-    var expandedAppearance by remember { mutableStateOf(false) }
-    var expandedPublicReport by remember { mutableStateOf(false) }
-    var expandedDomain by remember { mutableStateOf(false) }
-    var expandedCurrency by remember { mutableStateOf(false) }
-    var expandedBackup by remember { mutableStateOf(false) }
-    var expandedTutorial by remember { mutableStateOf(false) }
-
+    // Unified modal state: tapping any Settings card opens a focused Popup Dialog
+    var activeModal by remember { mutableStateOf<SettingsModalSection?>(null) }
     var currencyDropdownExpanded by remember { mutableStateOf(false) }
-    var showAboutDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
 
     var lastBackupTimestamp by remember { mutableStateOf(viewModel.getLastBackupTimestamp()) }
@@ -211,6 +211,10 @@ fun SettingsScreen(
     val tutorialAccent = accentTutorial()
     val aboutAccent = accentAbout()
 
+    val openLabel = LanguageHelper.getString("btn_open", selectedLanguage)
+    val saveAndCloseLabel = if (isEn) "Save & Close" else "Simpan & Tutup"
+    val closeLabel = LanguageHelper.getString("btn_close", selectedLanguage)
+
     val currentLanguageOption = remember(selectedLanguage) {
         LanguageHelper.getLanguageOption(selectedLanguage)
     }
@@ -241,6 +245,30 @@ fun SettingsScreen(
         }
     }
 
+    fun persistAllSettings(onComplete: () -> Unit = {}) {
+        val initial = CurrencyHelper.parseCleanAmount(initialBalanceText)
+        viewModel.saveSettings(
+            state.settings.copy(
+                groupName = groupName.trim(),
+                description = description.trim(),
+                adminName = adminName.trim(),
+                initialBalance = initial,
+                publicBaseUrl = AppSettings.PUBLIC_WEB_BASE_URL,
+                themeMode = selectedThemeMode,
+                language = selectedLanguage,
+                currencyCode = selectedCurrency
+            ),
+            onSuccess = onComplete
+        )
+    }
+
+    val parsedInitialPreview = CurrencyHelper.parseCleanAmount(initialBalanceText)
+    val isPublicSynced = state.settings.publicLastSyncedAt > 0L
+    val fixedProductionBaseUrl = AppSettings.PUBLIC_WEB_BASE_URL
+    val fixedPublicLinkPreview = remember(state.settings.publicKasId) {
+        PublicKasHelper.buildPublicUrl(state.settings.publicKasId.ifBlank { "KAS-..." })
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -262,23 +290,7 @@ fun SettingsScreen(
                 },
                 actions = {
                     Button(
-                        onClick = {
-                            val initial = CurrencyHelper.parseCleanAmount(initialBalanceText)
-                            viewModel.saveSettings(
-                                state.settings.copy(
-                                    groupName = groupName.trim(),
-                                    description = description.trim(),
-                                    adminName = adminName.trim(),
-                                    initialBalance = initial,
-                                    publicBaseUrl = AppSettings.PUBLIC_WEB_BASE_URL,
-                                    themeMode = selectedThemeMode,
-                                    language = selectedLanguage,
-                                    currencyCode = selectedCurrency
-                                )
-                            ) {
-                                onBack()
-                            }
-                        },
+                        onClick = { persistAllSettings { onBack() } },
                         modifier = Modifier
                             .padding(end = 10.dp)
                             .testTag("save_settings_button"),
@@ -316,760 +328,841 @@ fun SettingsScreen(
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(11.dp)
             ) {
-                // 1. PROFIL KELOMPOK & ADMIN (Expandable)
-                val parsedInitialPreview = CurrencyHelper.parseCleanAmount(initialBalanceText)
-                ExpandableSettingsCard(
+                // 1. PROFIL KELOMPOK & ADMIN -> Modal Popup
+                SettingsModalCard(
                     title = LanguageHelper.getString("profile_section", selectedLanguage),
                     subtitle = "${groupName.ifBlank { "Kas Transparan" }} • ${CurrencyHelper.format(parsedInitialPreview, selectedCurrency)}",
                     icon = Icons.Default.Person,
                     accent = profileAccent,
-                    expanded = expandedProfile,
-                    onToggle = { expandedProfile = !expandedProfile },
+                    actionLabel = openLabel,
+                    onClick = { activeModal = SettingsModalSection.PROFILE },
                     modifier = Modifier.testTag("settings_profile_card")
-                ) {
-                    OutlinedTextField(
-                        value = groupName,
-                        onValueChange = { groupName = it },
-                        label = { Text(LanguageHelper.getString("group_name", selectedLanguage)) },
-                        placeholder = { Text("Contoh: Kas RT 05 / RW 02") },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("input_group_name"),
-                        shape = RoundedCornerShape(12.dp)
-                    )
+                )
 
-                    OutlinedTextField(
-                        value = description,
-                        onValueChange = { description = it },
-                        label = {
-                            Text(
-                                if (isEn) "Description / Secretariat Address (Optional)"
-                                else "Keterangan / Alamat Sekretariat (Opsional)"
-                            )
-                        },
-                        placeholder = { Text("Contoh: Jl. Melati No. 12, Kel. Sukamaju") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("input_group_description"),
-                        shape = RoundedCornerShape(12.dp),
-                        maxLines = 2
-                    )
-
-                    OutlinedTextField(
-                        value = adminName,
-                        onValueChange = { adminName = it },
-                        label = { Text(LanguageHelper.getString("admin_name", selectedLanguage)) },
-                        placeholder = { Text("Contoh: Budi Santoso") },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("input_admin_name"),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    OutlinedTextField(
-                        value = initialBalanceText,
-                        onValueChange = { initialBalanceText = CurrencyHelper.formatInput(it) },
-                        label = { Text(LanguageHelper.getString("initial_balance_label", selectedLanguage)) },
-                        placeholder = { Text("0") },
-                        prefix = { Text("${CurrencyHelper.getSymbol(selectedCurrency)} ") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("input_initial_balance"),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    // Neat 2x2 Grid for Quick Addition Presets (never wraps awkwardly!)
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = LanguageHelper.getString("quick_presets", selectedLanguage),
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            if (CurrencyHelper.parseCleanAmount(initialBalanceText) > 0L) {
-                                Row(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable { initialBalanceText = "0" }
-                                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.RestartAlt,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text(
-                                        text = if (isEn) "Reset" else "Reset 0",
-                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                        color = MaterialTheme.colorScheme.error
-                                    )
-                                }
-                            }
-                        }
-
-                        val presetRows = listOf(
-                            listOf(100_000L, 500_000L),
-                            listOf(1_000_000L, 5_000_000L)
-                        )
-                        presetRows.forEach { rowAmounts ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                rowAmounts.forEach { addAmt ->
-                                    Surface(
-                                        onClick = {
-                                            val cur = CurrencyHelper.parseCleanAmount(initialBalanceText)
-                                            initialBalanceText = CurrencyHelper.formatInput((cur + addAmt).toString())
-                                        },
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(42.dp),
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = profileAccent.container.copy(alpha = 0.7f),
-                                        border = BorderStroke(1.dp, profileAccent.tint.copy(alpha = 0.25f))
-                                    ) {
-                                        Box(
-                                            contentAlignment = Alignment.Center,
-                                            modifier = Modifier.padding(horizontal = 10.dp)
-                                        ) {
-                                            Text(
-                                                text = "+ ${CurrencyHelper.format(addAmt, selectedCurrency)}",
-                                                style = MaterialTheme.typography.labelMedium.copy(
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 12.5.sp
-                                                ),
-                                                color = profileAccent.tint,
-                                                maxLines = 1,
-                                                softWrap = false,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 2. TEMA & BAHASA (Digabung dalam SATU kartu yang bisa dibuka)
-                ExpandableSettingsCard(
+                // 2. TEMA & BAHASA -> Modal Popup
+                SettingsModalCard(
                     title = if (isEn) "Theme & Language" else "Tema & Bahasa",
                     subtitle = "$currentThemeLabel • ${currentLanguageOption.flag} ${currentLanguageOption.nativeName}",
                     icon = Icons.Default.Palette,
                     accent = appearanceAccent,
-                    expanded = expandedAppearance,
-                    onToggle = { expandedAppearance = !expandedAppearance },
+                    actionLabel = openLabel,
+                    onClick = { activeModal = SettingsModalSection.APPEARANCE },
                     modifier = Modifier.testTag("settings_theme_language_card")
-                ) {
-                    Text(
-                        text = LanguageHelper.getString("theme_section", selectedLanguage),
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        val themeItems = listOf(
-                            Triple("LIGHT", LanguageHelper.getString("theme_light", selectedLanguage), Icons.Default.LightMode),
-                            Triple("DARK", LanguageHelper.getString("theme_dark", selectedLanguage), Icons.Default.DarkMode),
-                            Triple("SYSTEM", LanguageHelper.getString("theme_system", selectedLanguage), Icons.Default.Smartphone)
-                        )
-                        themeItems.forEach { (modeKey, label, icon) ->
-                            val isSelected = selectedThemeMode == modeKey
-                            Surface(
-                                onClick = {
-                                    selectedThemeMode = modeKey
-                                    viewModel.saveSettings(state.settings.copy(themeMode = modeKey)) {}
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(74.dp)
-                                    .testTag("theme_option_$modeKey"),
-                                shape = RoundedCornerShape(14.dp),
-                                color = if (isSelected) appearanceAccent.container
-                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                                border = BorderStroke(
-                                    width = if (isSelected) 1.5.dp else 1.dp,
-                                    color = if (isSelected) appearanceAccent.tint else SoftCardBorderColor
-                                )
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = 6.dp, vertical = 8.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = icon,
-                                        contentDescription = null,
-                                        tint = if (isSelected) appearanceAccent.tint else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = label,
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            fontSize = 11.5.sp
-                                        ),
-                                        color = if (isSelected) appearanceAccent.tint else MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.padding(vertical = 2.dp)
-                    )
-
-                    Text(
-                        text = LanguageHelper.getString("language_section", selectedLanguage),
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = appearanceAccent.container.copy(alpha = 0.55f),
-                        border = BorderStroke(1.dp, appearanceAccent.tint.copy(alpha = 0.2f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(text = currentLanguageOption.flag, fontSize = 26.sp)
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = currentLanguageOption.nativeName,
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "${currentLanguageOption.name} • ${currentLanguageOption.region}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-
-                    FilledTonalButton(
-                        onClick = { showLanguageDialog = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(46.dp)
-                            .testTag("btn_open_language_selector"),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = appearanceAccent.container,
-                            contentColor = appearanceAccent.tint
-                        )
-                    ) {
-                        Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "${LanguageHelper.getString("select_language_btn", selectedLanguage)} (24 Bahasa)",
-                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-                        )
-                    }
-                }
-
-                // 3. LAPORAN PUBLIK ONLINE (LINK ANGGOTA) (Expandable)
-                val isPublicSynced = state.settings.publicLastSyncedAt > 0L
-                ExpandableSettingsCard(
+                // 3. LAPORAN PUBLIK ONLINE -> Modal Popup
+                SettingsModalCard(
                     title = if (isEn) "Online Public Report" else "Laporan Publik Online",
                     subtitle = publicStatusSummary,
                     icon = Icons.Default.Public,
                     accent = publicAccent,
+                    actionLabel = openLabel,
                     badgeText = if (isPublicSynced) (if (isEn) "Live" else "Aktif") else (if (isEn) "Draft" else "Offline"),
                     badgeColor = if (isPublicSynced) SoftSuccessFg else MaterialTheme.colorScheme.onSurfaceVariant,
                     badgeContainerColor = if (isPublicSynced) SoftSuccessBg else MaterialTheme.colorScheme.surfaceVariant,
-                    expanded = expandedPublicReport,
-                    onToggle = { expandedPublicReport = !expandedPublicReport },
+                    onClick = { activeModal = SettingsModalSection.PUBLIC_REPORT },
                     modifier = Modifier.testTag("settings_public_report_card")
-                ) {
-                    PublicTransparencyCard(
-                        state = state,
-                        viewModel = viewModel,
-                        onOpenPublicPreview = onOpenPublicPreview,
-                        embedded = true
-                    )
-                }
+                )
 
-                // 4. DOMAIN WEB LAPORAN PUBLIK (Expandable — Fixed Production Domain)
-                val fixedProductionBaseUrl = AppSettings.PUBLIC_WEB_BASE_URL
-                val fixedPublicLinkPreview = remember(state.settings.publicKasId) {
-                    PublicKasHelper.buildPublicUrl(state.settings.publicKasId.ifBlank { "KAS-..." })
-                }
-                ExpandableSettingsCard(
-                    title = if (isEn) "Public Web Domain" else "Domain Web Laporan Publik",
+                // 4. DOMAIN WEB LAPORAN PUBLIK -> Modal Popup
+                SettingsModalCard(
+                    title = if (isEn) "Public Web Domain" else "Domain Web Laporan",
                     subtitle = fixedProductionBaseUrl.removePrefix("https://"),
                     icon = Icons.Default.Link,
                     accent = domainAccent,
+                    actionLabel = openLabel,
                     badgeText = if (isEn) "Fixed" else "Tetap",
                     badgeColor = domainAccent.tint,
                     badgeContainerColor = domainAccent.container,
-                    expanded = expandedDomain,
-                    onToggle = { expandedDomain = !expandedDomain },
+                    onClick = { activeModal = SettingsModalSection.DOMAIN },
                     modifier = Modifier.testTag("settings_public_url_card")
-                ) {
-                    Text(
-                        text = if (isEn)
-                            "All member links permanently use the fixed production web domain with hash route /#/lihat/${state.settings.publicKasId}."
-                        else
-                            "Semua tautan laporan anggota secara permanen memakai domain web produksi tetap dengan rute /#/lihat/${state.settings.publicKasId}.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    OutlinedTextField(
-                        value = fixedProductionBaseUrl,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text(if (isEn) "Production Domain (Fixed)" else "Domain Produksi Tetap") },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("input_public_base_url"),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    Text(
-                        text = fixedPublicLinkPreview,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = domainAccent.tint,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                )
 
-                // 5. MATA UANG (Expandable)
-                ExpandableSettingsCard(
+                // 5. MATA UANG -> Modal Popup
+                SettingsModalCard(
                     title = LanguageHelper.getString("currency_section", selectedLanguage),
                     subtitle = "${currentCurrencyOption?.code ?: selectedCurrency} (${currentCurrencyOption?.symbol ?: selectedCurrency}) • ${currentCurrencyOption?.name ?: ""}",
                     icon = Icons.Default.MonetizationOn,
                     accent = currencyAccent,
-                    expanded = expandedCurrency,
-                    onToggle = { expandedCurrency = !expandedCurrency },
+                    actionLabel = openLabel,
+                    onClick = { activeModal = SettingsModalSection.CURRENCY },
                     modifier = Modifier.testTag("settings_currency_card")
-                ) {
-                    Text(
-                        text = LanguageHelper.getString("currency_desc", selectedLanguage),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                )
 
-                    ExposedDropdownMenuBox(
-                        expanded = currencyDropdownExpanded,
-                        onExpandedChange = { currencyDropdownExpanded = it }
-                    ) {
-                        OutlinedTextField(
-                            value = "${currentCurrencyOption?.name ?: selectedCurrency} (${currentCurrencyOption?.symbol ?: selectedCurrency}) - ${currentCurrencyOption?.region ?: ""}",
-                            onValueChange = {},
-                            readOnly = true,
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = currencyDropdownExpanded) },
-                            modifier = Modifier
-                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                                .fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
+                // 6. CADANGAN & PEMULIHAN (GOOGLE DRIVE) -> Modal Popup
+                SettingsModalCard(
+                    title = LanguageHelper.getString("backup_drive_title", selectedLanguage),
+                    subtitle = lastBackupDisplay,
+                    icon = Icons.Default.CloudUpload,
+                    accent = backupAccent,
+                    actionLabel = openLabel,
+                    onClick = { activeModal = SettingsModalSection.BACKUP },
+                    modifier = Modifier.testTag("settings_google_drive_card")
+                )
+
+                // 7. TUTORIAL SINGKAT -> Modal Popup
+                SettingsModalCard(
+                    title = if (isEn) "Quick App Guide" else "Tutorial Singkat",
+                    subtitle = if (isEn) "5 easy steps to manage transparent cashbooks" else "Panduan cepat 5 langkah pakai Kas Transparan",
+                    icon = Icons.AutoMirrored.Filled.MenuBook,
+                    accent = tutorialAccent,
+                    actionLabel = openLabel,
+                    badgeText = if (isEn) "Guide" else "Panduan",
+                    onClick = { activeModal = SettingsModalSection.TUTORIAL },
+                    modifier = Modifier.testTag("settings_tutorial_card")
+                )
+
+                // 8. TENTANG PERANGKAT & APLIKASI -> Modal Popup
+                SettingsModalCard(
+                    title = LanguageHelper.getString("about_device_app", selectedLanguage),
+                    subtitle = "KAS TRANSPARAN v1.0.0 by Rafline Dev",
+                    icon = Icons.Default.Smartphone,
+                    accent = aboutAccent,
+                    actionLabel = openLabel,
+                    onClick = { activeModal = SettingsModalSection.ABOUT },
+                    modifier = Modifier.testTag("settings_about_card")
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+            }
+        }
+    }
+
+    // ==================== MODAL POPUPS FOR EACH SETTINGS SECTION ====================
+    when (activeModal) {
+        SettingsModalSection.PROFILE -> {
+            SettingsPopupDialog(
+                title = LanguageHelper.getString("profile_section", selectedLanguage),
+                subtitle = if (isEn) "Group identity, admin & opening cash balance" else "Identitas kelompok, bendahara & saldo awal kas",
+                icon = Icons.Default.Person,
+                accent = profileAccent,
+                primaryButtonText = saveAndCloseLabel,
+                showCheckIcon = true,
+                onDismiss = { activeModal = null },
+                onPrimaryAction = {
+                    persistAllSettings {
+                        Toast.makeText(
+                            context,
+                            if (isEn) "Profile settings saved" else "Profil & saldo awal disimpan",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        activeModal = null
+                    }
+                }
+            ) {
+                OutlinedTextField(
+                    value = groupName,
+                    onValueChange = { groupName = it },
+                    label = { Text(LanguageHelper.getString("group_name", selectedLanguage)) },
+                    placeholder = { Text("Contoh: Kas RT 05 / RW 02") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_group_name"),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = {
+                        Text(
+                            if (isEn) "Description / Secretariat Address (Optional)"
+                            else "Keterangan / Alamat Sekretariat (Opsional)"
                         )
+                    },
+                    placeholder = { Text("Contoh: Jl. Melati No. 12, Kel. Sukamaju") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_group_description"),
+                    shape = RoundedCornerShape(12.dp),
+                    maxLines = 2
+                )
 
-                        ExposedDropdownMenu(
-                            expanded = currencyDropdownExpanded,
-                            onDismissRequest = { currencyDropdownExpanded = false }
+                OutlinedTextField(
+                    value = adminName,
+                    onValueChange = { adminName = it },
+                    label = { Text(LanguageHelper.getString("admin_name", selectedLanguage)) },
+                    placeholder = { Text("Contoh: Budi Santoso") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_admin_name"),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                OutlinedTextField(
+                    value = initialBalanceText,
+                    onValueChange = { initialBalanceText = CurrencyHelper.formatInput(it) },
+                    label = { Text(LanguageHelper.getString("initial_balance_label", selectedLanguage)) },
+                    placeholder = { Text("0") },
+                    prefix = { Text("${CurrencyHelper.getSymbol(selectedCurrency)} ") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_initial_balance"),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                // Neat 2x2 Grid for Quick Addition Presets
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = LanguageHelper.getString("quick_presets", selectedLanguage),
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (CurrencyHelper.parseCleanAmount(initialBalanceText) > 0L) {
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { initialBalanceText = "0" }
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.RestartAlt,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = if (isEn) "Reset" else "Reset 0",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+
+                    val presetRows = listOf(
+                        listOf(100_000L, 500_000L),
+                        listOf(1_000_000L, 5_000_000L)
+                    )
+                    presetRows.forEach { rowAmounts ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            CurrencyHelper.SUPPORTED_CURRENCIES.forEach { option ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text("${option.code} - ${option.name} (${option.symbol}) [${option.region}]")
-                                    },
+                            rowAmounts.forEach { addAmt ->
+                                Surface(
                                     onClick = {
-                                        selectedCurrency = option.code
-                                        currencyDropdownExpanded = false
+                                        val cur = CurrencyHelper.parseCleanAmount(initialBalanceText)
+                                        initialBalanceText = CurrencyHelper.formatInput((cur + addAmt).toString())
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(42.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = profileAccent.container.copy(alpha = 0.7f),
+                                    border = BorderStroke(1.dp, profileAccent.tint.copy(alpha = 0.25f))
+                                ) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.padding(horizontal = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = "+ ${CurrencyHelper.format(addAmt, selectedCurrency)}",
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp
+                                            ),
+                                            color = profileAccent.tint,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        SettingsModalSection.APPEARANCE -> {
+            SettingsPopupDialog(
+                title = if (isEn) "Theme & Language" else "Tema & Bahasa",
+                subtitle = if (isEn) "Customize visual appearance & app language" else "Atur tampilan terang/gelap & bahasa aplikasi",
+                icon = Icons.Default.Palette,
+                accent = appearanceAccent,
+                primaryButtonText = saveAndCloseLabel,
+                showCheckIcon = true,
+                onDismiss = { activeModal = null },
+                onPrimaryAction = {
+                    persistAllSettings { activeModal = null }
+                }
+            ) {
+                Text(
+                    text = LanguageHelper.getString("theme_section", selectedLanguage),
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val themeItems = listOf(
+                        Triple("LIGHT", LanguageHelper.getString("theme_light", selectedLanguage), Icons.Default.LightMode),
+                        Triple("DARK", LanguageHelper.getString("theme_dark", selectedLanguage), Icons.Default.DarkMode),
+                        Triple("SYSTEM", LanguageHelper.getString("theme_system", selectedLanguage), Icons.Default.Smartphone)
+                    )
+                    themeItems.forEach { (modeKey, label, icon) ->
+                        val isSelected = selectedThemeMode == modeKey
+                        Surface(
+                            onClick = {
+                                selectedThemeMode = modeKey
+                                viewModel.saveSettings(state.settings.copy(themeMode = modeKey)) {}
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(74.dp)
+                                .testTag("theme_option_$modeKey"),
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (isSelected) appearanceAccent.container
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            border = BorderStroke(
+                                width = if (isSelected) 1.5.dp else 1.dp,
+                                color = if (isSelected) appearanceAccent.tint else SoftCardBorderColor
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 6.dp, vertical = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = null,
+                                    tint = if (isSelected) appearanceAccent.tint else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        fontSize = 11.5.sp
+                                    ),
+                                    color = if (isSelected) appearanceAccent.tint else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
                     }
                 }
 
-                // 6. CADANGAN & PEMULIHAN (GOOGLE DRIVE) (Expandable)
-                ExpandableSettingsCard(
-                    title = LanguageHelper.getString("backup_drive_title", selectedLanguage),
-                    subtitle = lastBackupDisplay,
-                    icon = Icons.Default.CloudUpload,
-                    accent = backupAccent,
-                    expanded = expandedBackup,
-                    onToggle = { expandedBackup = !expandedBackup },
-                    modifier = Modifier.testTag("settings_google_drive_card")
-                ) {
-                    Text(
-                        text = if (isEn)
-                            "Backup safely stores all transactions, settings, Public Kas ID, and your Group Security Key so you can switch devices smoothly."
-                        else
-                            "Cadangan menyimpan seluruh transaksi, profil, ID Kas Publik, dan Kunci Pengaman Kelompok agar aman saat ganti HP.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.padding(vertical = 2.dp)
+                )
 
+                Text(
+                    text = LanguageHelper.getString("language_section", selectedLanguage),
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = appearanceAccent.container.copy(alpha = 0.55f),
+                    border = BorderStroke(1.dp, appearanceAccent.tint.copy(alpha = 0.2f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = if (lastBackupTimestamp > 0L) Icons.Default.CloudDone else Icons.Default.CloudQueue,
-                            contentDescription = null,
-                            tint = if (lastBackupTimestamp > 0L) IncomeGreen else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = lastBackupDisplay,
-                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    Button(
-                        onClick = {
-                            val file = viewModel.createBackupFile()
-                            if (file != null && file.exists()) {
-                                try {
-                                    val fileUri: Uri = FileProvider.getUriForFile(
-                                        context,
-                                        "${context.packageName}.fileprovider",
-                                        file
-                                    )
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "application/json"
-                                        putExtra(Intent.EXTRA_STREAM, fileUri)
-                                        putExtra(Intent.EXTRA_SUBJECT, "Backup Kas Transparan - ${file.name}")
-                                        putExtra(Intent.EXTRA_TEXT, "File cadangan data Kas Transparan. Simpan file ini di Google Drive Anda agar aman.")
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    val chooser = Intent.createChooser(shareIntent, "Simpan Cadangan ke Google Drive")
-                                    context.startActivity(chooser)
-                                    lastBackupTimestamp = System.currentTimeMillis()
-                                    viewModel.setLastBackupTimestamp(lastBackupTimestamp)
-                                    Toast.makeText(context, "Silakan pilih 'Simpan ke Drive'", Toast.LENGTH_LONG).show()
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Gagal membuat cadangan: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                                }
-                            } else {
-                                Toast.makeText(context, "Gagal membuat file cadangan", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("btn_backup_google_drive"),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = backupAccent.tint,
-                            contentColor = if (isLight) Color.White else Color(0xFF0A192F)
-                        )
-                    ) {
-                        Icon(Icons.Default.CloudUpload, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = LanguageHelper.getString("btn_backup_drive", selectedLanguage),
-                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            restoreLauncher.launch(arrayOf("application/json", "application/octet-stream", "*/*"))
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("btn_restore_google_drive"),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(Icons.Default.CloudDownload, contentDescription = null, tint = backupAccent.tint)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = LanguageHelper.getString("btn_restore_drive", selectedLanguage),
-                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                            color = backupAccent.tint
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable {
-                                try {
-                                    val driveIntent = context.packageManager.getLaunchIntentForPackage("com.google.android.apps.docs")
-                                    if (driveIntent != null) {
-                                        context.startActivity(driveIntent)
-                                    } else {
-                                        val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://drive.google.com"))
-                                        context.startActivity(webIntent)
-                                    }
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, LanguageHelper.getString("drive_app_not_found", selectedLanguage), Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                            .padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                            contentDescription = null,
-                            tint = backupAccent.tint,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = LanguageHelper.getString("btn_open_drive_app", selectedLanguage),
-                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = backupAccent.tint
-                        )
-                    }
-                }
-
-                // 7. TUTORIAL SINGKAT PENGGUNAAN APLIKASI (Kartu Baru Bisa Dibuka)
-                ExpandableSettingsCard(
-                    title = if (isEn) "Quick App Guide" else "Tutorial Singkat Penggunaan",
-                    subtitle = if (isEn) "5 easy steps to manage transparent cashbooks" else "Panduan cepat 5 langkah pakai Kas Transparan",
-                    icon = Icons.AutoMirrored.Filled.MenuBook,
-                    accent = tutorialAccent,
-                    badgeText = if (isEn) "Guide" else "Panduan",
-                    expanded = expandedTutorial,
-                    onToggle = { expandedTutorial = !expandedTutorial },
-                    modifier = Modifier.testTag("settings_tutorial_card")
-                ) {
-                    val steps = if (isEn) {
-                        listOf(
-                            "Set Up Profile & Opening Balance" to "Open Profile & Admin above, enter your group/RT name, secretariat address, and initial cash balance, then tap Save.",
-                            "Record Income & Expenses" to "Use the Income & Expense tabs (or quick buttons on Dashboard) to log dues, donations, and operational costs with receipt photos.",
-                            "Track History & Audit Trail" to "Open History to search, filter, edit, or void transactions. Every change is recorded automatically in the Audit Log.",
-                            "Share 1-Link Public Report (No Login)" to "Tap 'Sync / Update Report to Web' to publish real-time balances without signing in, then share the read-only link to your WhatsApp group.",
-                            "Export PDF/Excel & Backup Data" to "Download formal PDF or Excel reports from the Report tab, and back up to Google Drive regularly so your data and Group Security Key stay safe."
-                        )
-                    } else {
-                        listOf(
-                            "Atur Profil & Saldo Awal" to "Buka kartu Profil Kelompok & Admin di atas, isi nama RT/organisasi, alamat sekretariat, dan saldo awal kas lalu tekan Simpan.",
-                            "Catat Pemasukan & Pengeluaran" to "Gunakan menu Masuk & Keluar (atau tombol cepat di Beranda) untuk mencatat iuran warga, donasi, dan pengeluaran beserta foto struk.",
-                            "Cek Riwayat & Audit Log" to "Buka menu Riwayat untuk mencari, memfilter, mengedit, atau membatalkan transaksi. Semua perubahan tercatat otomatis di Audit Log.",
-                            "Bagikan Laporan Publik 1 Link (Tanpa Login)" to "Tekan 'Sinkronkan / Update Laporan ke Web' tanpa perlu login, lalu kirim link ke Grup WA agar warga bisa memantau saldo real-time (Mode Hanya Lihat).",
-                            "Unduh PDF/Excel & Cadangkan Data" to "Cetak atau unduh laporan PDF/Excel di menu Laporan, serta lakukan Cadangan ke Google Drive secara rutin agar data & kunci pengaman aman saat ganti HP."
-                        )
-                    }
-
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        steps.forEachIndexed { index, (stepTitle, stepDesc) ->
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                                border = BorderStroke(1.dp, SoftCardBorderColor.copy(alpha = 0.7f)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp),
-                                    verticalAlignment = Alignment.Top
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(28.dp)
-                                            .clip(CircleShape)
-                                            .background(tutorialAccent.container),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = "${index + 1}",
-                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.ExtraBold),
-                                            color = tutorialAccent.tint
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Column(
-                                        modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                                    ) {
-                                        Text(
-                                            text = stepTitle,
-                                            style = MaterialTheme.typography.bodyMedium.copy(
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 13.5.sp
-                                            ),
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Text(
-                                            text = stepDesc,
-                                            style = MaterialTheme.typography.bodySmall.copy(
-                                                fontSize = 12.sp,
-                                                lineHeight = 17.sp
-                                            ),
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 8. TENTANG PERANGKAT & APLIKASI
-                SoftElevatedCard(
-                    modifier = Modifier
-                        .clickable { showAboutDialog = true }
-                        .testTag("settings_about_card"),
-                    cornerRadius = 20.dp,
-                    elevation = 4.dp
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(aboutAccent.container),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Smartphone,
-                                contentDescription = null,
-                                tint = aboutAccent.tint,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
+                        Text(text = currentLanguageOption.flag, fontSize = 26.sp)
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = LanguageHelper.getString("about_device_app", selectedLanguage),
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp
-                                ),
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                text = currentLanguageOption.nativeName,
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "KAS TRANSPARAN v1.0.0 by Rafline Dev",
-                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        FilledTonalButton(
-                            onClick = { showAboutDialog = true },
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 36.dp)
-                        ) {
-                            Text(
-                                text = LanguageHelper.getString("btn_open", selectedLanguage),
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                maxLines = 1
+                                text = "${currentLanguageOption.name} • ${currentLanguageOption.region}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                FilledTonalButton(
+                    onClick = { showLanguageDialog = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                        .testTag("btn_open_language_selector"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = appearanceAccent.container,
+                        contentColor = appearanceAccent.tint
+                    )
+                ) {
+                    Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "${LanguageHelper.getString("select_language_btn", selectedLanguage)} (24 Bahasa)",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
             }
         }
-    }
 
-    // ABOUT APPLICATION DIALOG
-    if (showAboutDialog) {
-        AlertDialog(
-            onDismissRequest = { showAboutDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primaryContainer),
-                        contentAlignment = Alignment.Center
+        SettingsModalSection.PUBLIC_REPORT -> {
+            SettingsPopupDialog(
+                title = if (isEn) "Online Public Report" else "Laporan Publik Online",
+                subtitle = publicStatusSummary,
+                icon = Icons.Default.Public,
+                accent = publicAccent,
+                primaryButtonText = closeLabel,
+                onDismiss = { activeModal = null },
+                onPrimaryAction = { activeModal = null }
+            ) {
+                PublicTransparencyCard(
+                    state = state,
+                    viewModel = viewModel,
+                    onOpenPublicPreview = { kasId ->
+                        activeModal = null
+                        onOpenPublicPreview(kasId)
+                    },
+                    embedded = true
+                )
+            }
+        }
+
+        SettingsModalSection.DOMAIN -> {
+            SettingsPopupDialog(
+                title = if (isEn) "Public Web Domain" else "Domain Web Laporan Publik",
+                subtitle = if (isEn) "Fixed production domain for all member links" else "Domain produksi tetap untuk tautan anggota",
+                icon = Icons.Default.Link,
+                accent = domainAccent,
+                primaryButtonText = closeLabel,
+                onDismiss = { activeModal = null },
+                onPrimaryAction = { activeModal = null }
+            ) {
+                Text(
+                    text = if (isEn)
+                        "All member links permanently use the fixed production web domain with hash route /#/lihat/${state.settings.publicKasId}."
+                    else
+                        "Semua tautan laporan anggota secara permanen memakai domain web produksi tetap dengan rute /#/lihat/${state.settings.publicKasId}.",
+                    style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = fixedProductionBaseUrl,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text(if (isEn) "Production Domain (Fixed)" else "Domain Produksi Tetap") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_public_base_url"),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = domainAccent.container.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, domainAccent.tint.copy(alpha = 0.2f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.AccountBalanceWallet,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
+                        Text(
+                            text = if (isEn) "Active Member URL:" else "Tautan Aktif Anggota:",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = fixedPublicLinkPreview,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 11.5.sp
+                            ),
+                            color = domainAccent.tint
                         )
                     }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text("Kas Transparan", fontWeight = FontWeight.Bold)
                 }
-            },
-            text = {
-                val licenseRepo = remember(context) { LicenseRepository.getInstance(context) }
-                val activeLicense = remember { licenseRepo.getLocalLicense() }
-                val currentDeviceId = remember { licenseRepo.getOrCreateDeviceId() }
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = LanguageHelper.getString("app_desc", selectedLanguage),
-                        style = MaterialTheme.typography.bodyMedium
+            }
+        }
+
+        SettingsModalSection.CURRENCY -> {
+            SettingsPopupDialog(
+                title = LanguageHelper.getString("currency_section", selectedLanguage),
+                subtitle = if (isEn) "Choose default currency format" else "Pilih format simbol & mata uang utama",
+                icon = Icons.Default.MonetizationOn,
+                accent = currencyAccent,
+                primaryButtonText = saveAndCloseLabel,
+                showCheckIcon = true,
+                onDismiss = { activeModal = null },
+                onPrimaryAction = {
+                    persistAllSettings {
+                        Toast.makeText(
+                            context,
+                            if (isEn) "Currency updated" else "Mata uang diperbarui",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        activeModal = null
+                    }
+                }
+            ) {
+                Text(
+                    text = LanguageHelper.getString("currency_desc", selectedLanguage),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                ExposedDropdownMenuBox(
+                    expanded = currencyDropdownExpanded,
+                    onExpandedChange = { currencyDropdownExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        value = "${currentCurrencyOption?.name ?: selectedCurrency} (${currentCurrencyOption?.symbol ?: selectedCurrency}) - ${currentCurrencyOption?.region ?: ""}",
+                        onValueChange = {},
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = currencyDropdownExpanded) },
+                        modifier = Modifier
+                            .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                            .fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
                     )
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    Text(text = LanguageHelper.getString("app_version", selectedLanguage), style = MaterialTheme.typography.bodySmall)
-                    Text(text = LanguageHelper.getString("developer", selectedLanguage), style = MaterialTheme.typography.bodySmall)
-                    Text(text = LanguageHelper.getString("platform", selectedLanguage), style = MaterialTheme.typography.bodySmall)
-                    Text(text = LanguageHelper.getString("release_year", selectedLanguage), style = MaterialTheme.typography.bodySmall)
-                    Text(text = LanguageHelper.getString("copyright", selectedLanguage), style = MaterialTheme.typography.bodySmall)
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    Text(
-                        text = "Status Lisensi: ${if (activeLicense?.activated == true) "Aktif (${activeLicense.licenseCode})" else "Belum Aktif"}",
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = if (activeLicense?.activated == true) IncomeGreen else MaterialTheme.colorScheme.onSurfaceVariant
+
+                    ExposedDropdownMenu(
+                        expanded = currencyDropdownExpanded,
+                        onDismissRequest = { currencyDropdownExpanded = false }
+                    ) {
+                        CurrencyHelper.SUPPORTED_CURRENCIES.forEach { option ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text("${option.code} - ${option.name} (${option.symbol}) [${option.region}]")
+                                },
+                                onClick = {
+                                    selectedCurrency = option.code
+                                    currencyDropdownExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        SettingsModalSection.BACKUP -> {
+            SettingsPopupDialog(
+                title = LanguageHelper.getString("backup_drive_title", selectedLanguage),
+                subtitle = if (isEn) "Safe local backup & restore via Google Drive" else "Cadangkan & pulihkan data aman via Google Drive",
+                icon = Icons.Default.CloudUpload,
+                accent = backupAccent,
+                primaryButtonText = closeLabel,
+                onDismiss = { activeModal = null },
+                onPrimaryAction = { activeModal = null }
+            ) {
+                Text(
+                    text = if (isEn)
+                        "Backup safely stores all transactions, settings, Public Kas ID, and your Group Security Key so you can switch devices smoothly."
+                    else
+                        "Cadangan menyimpan seluruh transaksi, profil, ID Kas Publik, dan Kunci Pengaman Kelompok agar aman saat ganti HP.",
+                    style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (lastBackupTimestamp > 0L) Icons.Default.CloudDone else Icons.Default.CloudQueue,
+                        contentDescription = null,
+                        tint = if (lastBackupTimestamp > 0L) IncomeGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
                     )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "ID Perangkat: $currentDeviceId",
-                        style = MaterialTheme.typography.labelSmall,
+                        text = lastBackupDisplay,
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { showAboutDialog = false }) {
-                    Text(LanguageHelper.getString("btn_close", selectedLanguage))
+
+                Button(
+                    onClick = {
+                        val file = viewModel.createBackupFile()
+                        if (file != null && file.exists()) {
+                            try {
+                                val fileUri: Uri = FileProvider.getUriForFile(
+                                    context,
+                                    "${context.packageName}.fileprovider",
+                                    file
+                                )
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "application/json"
+                                    putExtra(Intent.EXTRA_STREAM, fileUri)
+                                    putExtra(Intent.EXTRA_SUBJECT, "Backup Kas Transparan - ${file.name}")
+                                    putExtra(Intent.EXTRA_TEXT, "File cadangan data Kas Transparan. Simpan file ini di Google Drive Anda agar aman.")
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                val chooser = Intent.createChooser(shareIntent, "Simpan Cadangan ke Google Drive")
+                                context.startActivity(chooser)
+                                lastBackupTimestamp = System.currentTimeMillis()
+                                viewModel.setLastBackupTimestamp(lastBackupTimestamp)
+                                Toast.makeText(context, "Silakan pilih 'Simpan ke Drive'", Toast.LENGTH_LONG).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Gagal membuat cadangan: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            Toast.makeText(context, "Gagal membuat file cadangan", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                        .testTag("btn_backup_google_drive"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = backupAccent.tint,
+                        contentColor = if (isLight) Color.White else Color(0xFF0A192F)
+                    )
+                ) {
+                    Icon(Icons.Default.CloudUpload, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = LanguageHelper.getString("btn_backup_drive", selectedLanguage),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        restoreLauncher.launch(arrayOf("application/json", "application/octet-stream", "*/*"))
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                        .testTag("btn_restore_google_drive"),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.CloudDownload, contentDescription = null, tint = backupAccent.tint)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = LanguageHelper.getString("btn_restore_drive", selectedLanguage),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                        color = backupAccent.tint
+                    )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable {
+                            try {
+                                val driveIntent = context.packageManager.getLaunchIntentForPackage("com.google.android.apps.docs")
+                                if (driveIntent != null) {
+                                    context.startActivity(driveIntent)
+                                } else {
+                                    val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://drive.google.com"))
+                                    context.startActivity(webIntent)
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(context, LanguageHelper.getString("drive_app_not_found", selectedLanguage), Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                        contentDescription = null,
+                        tint = backupAccent.tint,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = LanguageHelper.getString("btn_open_drive_app", selectedLanguage),
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = backupAccent.tint
+                    )
                 }
             }
-        )
+        }
+
+        SettingsModalSection.TUTORIAL -> {
+            SettingsPopupDialog(
+                title = if (isEn) "Quick App Guide" else "Tutorial Singkat Penggunaan",
+                subtitle = if (isEn) "5 easy steps to manage transparent cashbooks" else "5 langkah cepat mengelola kas secara transparan",
+                icon = Icons.AutoMirrored.Filled.MenuBook,
+                accent = tutorialAccent,
+                primaryButtonText = closeLabel,
+                onDismiss = { activeModal = null },
+                onPrimaryAction = { activeModal = null }
+            ) {
+                val steps = if (isEn) {
+                    listOf(
+                        "Set Up Profile & Opening Balance" to "Open Profile & Admin, enter your group/RT name, secretariat address, and initial cash balance, then tap Save & Close.",
+                        "Record Income & Expenses" to "Use the Income & Expense tabs (or quick buttons on Dashboard) to log dues, donations, and operational costs with receipt photos.",
+                        "Track History & Audit Trail" to "Open History to search, filter, edit, or void transactions. Every change is recorded automatically in the Audit Log.",
+                        "Share 1-Link Public Report (No Login)" to "Tap 'Update Web' to publish real-time balances without signing in, then share the read-only link to your WhatsApp group.",
+                        "Export PDF/Excel & Backup Data" to "Download formal PDF or Excel reports from the Report tab, and back up to Google Drive regularly so your data stays safe."
+                    )
+                } else {
+                    listOf(
+                        "Atur Profil & Saldo Awal" to "Buka kartu Profil Kelompok & Admin, isi nama RT/organisasi, alamat sekretariat, dan saldo awal kas lalu tekan Simpan & Tutup.",
+                        "Catat Pemasukan & Pengeluaran" to "Gunakan menu Masuk & Keluar (atau tombol cepat di Beranda) untuk mencatat iuran warga, donasi, dan pengeluaran beserta foto struk.",
+                        "Cek Riwayat & Audit Log" to "Buka menu Riwayat untuk mencari, memfilter, mengedit, atau membatalkan transaksi. Semua perubahan tercatat otomatis di Audit Log.",
+                        "Bagikan Laporan Publik 1 Link (Tanpa Login)" to "Tekan 'Update Web' tanpa perlu login, lalu kirim link ke Grup WA agar warga bisa memantau saldo real-time (Mode Hanya Lihat).",
+                        "Unduh PDF/Excel & Cadangkan Data" to "Cetak atau unduh laporan PDF/Excel di menu Laporan, serta lakukan Cadangan ke Google Drive secara rutin agar data & kunci pengaman aman."
+                    )
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    steps.forEachIndexed { index, (stepTitle, stepDesc) ->
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                            border = BorderStroke(1.dp, SoftCardBorderColor.copy(alpha = 0.7f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(11.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(26.dp)
+                                        .clip(CircleShape)
+                                        .background(tutorialAccent.container),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "${index + 1}",
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.ExtraBold),
+                                        color = tutorialAccent.tint
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = stepTitle,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp
+                                        ),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = stepDesc,
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontSize = 11.5.sp,
+                                            lineHeight = 16.5.sp
+                                        ),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        SettingsModalSection.ABOUT -> {
+            val licenseRepo = remember(context) { LicenseRepository.getInstance(context) }
+            val activeLicense = remember { licenseRepo.getLocalLicense() }
+            val currentDeviceId = remember { licenseRepo.getOrCreateDeviceId() }
+
+            SettingsPopupDialog(
+                title = "Kas Transparan",
+                subtitle = "v1.0.0 • Product by Rafline Dev",
+                icon = Icons.Default.Smartphone,
+                accent = aboutAccent,
+                primaryButtonText = closeLabel,
+                onDismiss = { activeModal = null },
+                onPrimaryAction = { activeModal = null }
+            ) {
+                Text(
+                    text = LanguageHelper.getString("app_desc", selectedLanguage),
+                    style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    border = BorderStroke(1.dp, SoftCardBorderColor.copy(alpha = 0.7f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(text = LanguageHelper.getString("app_version", selectedLanguage), style = MaterialTheme.typography.bodySmall)
+                        Text(text = LanguageHelper.getString("developer", selectedLanguage), style = MaterialTheme.typography.bodySmall)
+                        Text(text = LanguageHelper.getString("platform", selectedLanguage), style = MaterialTheme.typography.bodySmall)
+                        Text(text = LanguageHelper.getString("release_year", selectedLanguage), style = MaterialTheme.typography.bodySmall)
+                        Text(text = LanguageHelper.getString("copyright", selectedLanguage), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (activeLicense?.activated == true) SoftSuccessBg else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    border = BorderStroke(
+                        1.dp,
+                        if (activeLicense?.activated == true) IncomeGreen.copy(alpha = 0.35f) else SoftCardBorderColor
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "Status Lisensi: ${if (activeLicense?.activated == true) "Aktif (${activeLicense.licenseCode})" else "Belum Aktif"}",
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                            color = if (activeLicense?.activated == true) SoftSuccessFg else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "ID Perangkat: $currentDeviceId",
+                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
+        null -> Unit
     }
 
     // DIALOG HASIL PEMULIHAN DARI GOOGLE DRIVE
@@ -1256,45 +1349,4 @@ fun LanguageSelectionDialog(
             }
         }
     )
-}
-
-@Composable
-fun ThemeOptionRow(
-    title: String,
-    icon: ImageVector,
-    isSelected: Boolean,
-    onSelect: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(
-                if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                else Color.Transparent
-            )
-            .clickable(onClick = onSelect)
-            .padding(horizontal = 10.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(22.dp)
-        )
-        Spacer(modifier = Modifier.width(12.dp))
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyMedium.copy(
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-            ),
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f)
-        )
-        RadioButton(
-            selected = isSelected,
-            onClick = onSelect
-        )
-    }
 }

@@ -220,3 +220,96 @@ test("Schema validation: rejects short writeSecret, groupName > 120 chars, ghost
     totalIncome: -100,
   }));
 });
+
+// --- ACTIVATION_CODES (1-DEVICE LICENSE) TESTS ---
+
+test("License activation: can lookup by doc ID or code field and activate unused/available/ready code", async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().collection("activation_codes").doc("RAFDEV-LFZA-L3K2").set({
+      code: "RAFDEV-LFZA-L3K2",
+      appId: "kas_transparan",
+      status: "unused",
+      deviceId: "",
+    });
+    await context.firestore().collection("activation_codes").doc("randomDocId123").set({
+      code: "RAFDEV-RDY1-9999",
+      appId: "kas_transparan",
+      status: "ready",
+    });
+  });
+
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+
+  // Direct doc ID lookup + activation
+  await assertSucceeds(unauthDb.collection("activation_codes").doc("RAFDEV-LFZA-L3K2").get());
+  await assertSucceeds(unauthDb.collection("activation_codes").doc("RAFDEV-LFZA-L3K2").update({
+    status: "active",
+    deviceId: "DEVICE_ALPHA_001",
+    activatedAt: new Date(Date.now() - 1000),
+  }));
+
+  // Flexible field query lookup (limit 1) + activation
+  await assertSucceeds(
+    unauthDb.collection("activation_codes").where("code", "==", "RAFDEV-RDY1-9999").limit(1).get()
+  );
+  await assertSucceeds(unauthDb.collection("activation_codes").doc("randomDocId123").update({
+    status: "active",
+    deviceId: "DEVICE_BETA_002",
+    activatedAt: new Date(Date.now() - 1000),
+  }));
+
+  // Auto-restore query by deviceId + status (limit 10)
+  await assertSucceeds(
+    unauthDb.collection("activation_codes")
+      .where("deviceId", "==", "DEVICE_ALPHA_001")
+      .where("status", "==", "active")
+      .limit(10)
+      .get()
+  );
+});
+
+test("License security: blocks hijacking another device's code, reactivating revoked code, bulk dump, or unauthenticated creation", async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().collection("activation_codes").doc("RAFDEV-BOUND-01").set({
+      code: "RAFDEV-BOUND-01",
+      appId: "kas_transparan",
+      status: "active",
+      deviceId: "DEVICE_OWNER_01",
+    });
+    await context.firestore().collection("activation_codes").doc("RAFDEV-REVOKED-01").set({
+      code: "RAFDEV-REVOKED-01",
+      appId: "kas_transparan",
+      status: "revoked",
+      deviceId: "",
+    });
+  });
+
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+
+  // Another device cannot hijack an already-bound code
+  await assertFails(unauthDb.collection("activation_codes").doc("RAFDEV-BOUND-01").update({
+    status: "active",
+    deviceId: "DEVICE_HACKER_99",
+    activatedAt: new Date(Date.now() - 1000),
+  }));
+
+  // Revoked code cannot be reactivated
+  await assertFails(unauthDb.collection("activation_codes").doc("RAFDEV-REVOKED-01").update({
+    status: "active",
+    deviceId: "DEVICE_HACKER_99",
+    activatedAt: new Date(Date.now() - 1000),
+  }));
+
+  // Unbounded collection dump is forbidden
+  await assertFails(unauthDb.collection("activation_codes").get());
+
+  // Unauthenticated client cannot mint new license codes
+  await assertFails(unauthDb.collection("activation_codes").doc("FAKE-CODE-1234").set({
+    status: "active",
+    deviceId: "DEVICE_HACKER_99",
+  }));
+
+  // Deleting license codes is forbidden
+  await assertFails(unauthDb.collection("activation_codes").doc("RAFDEV-BOUND-01").delete());
+});
+

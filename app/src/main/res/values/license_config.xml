@@ -1,16 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-        Konfigurasi Firebase License Admin (Secondary Firebase App)
-        Terpisah dari database utama Kas Transparan (public_kas).
-        Silakan sesuaikan license_firestore_database_id dengan nama lengkap database
-        Firestore License Admin Anda (yang berakhiran 9a1964fa), serta nomor WhatsApp admin.
+        Konfigurasi Produk & Kontak Email Lisensi Kas Transparan.
+        Validasi lisensi menggunakan database Firestore utama aplikasi (firestore_database_id).
     -->
-    <string name="license_firebase_project_id" translatable="false">gen-lang-client-0676480047</string>
-    <string name="license_firebase_application_id" translatable="false">1:1074593799025:android:942f74537da46161c0f4d0</string>
-    <string name="license_firebase_gcm_sender_id" translatable="false">1074593799025</string>
-    <string name="license_firebase_storage_bucket" translatable="false">gen-lang-client-0676480047.firebasestorage.app</string>
-    <string name="license_firestore_database_id" translatable="false">ai-studio-android-licensem-9a1964fa</string>
     <string name="license_product_app_id" translatable="false">kas_transparan</string>
     <string name="license_admin_email" translatable="false">rendykurniawan0311@gmail.com</string>
 </resources>

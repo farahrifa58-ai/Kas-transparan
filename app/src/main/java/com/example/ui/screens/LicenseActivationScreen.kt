@@ -163,12 +163,14 @@ fun LicenseActivationScreen(
     var isActivating by remember { mutableStateOf(false) }
     var isRestoring by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf(initialInfoMessage) }
+    var errorDetail by remember { mutableStateOf<String?>(null) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
 
     fun submitActivation() {
         if (isActivating || isRestoring) return
         keyboardController?.hide()
         errorMessage = null
+        errorDetail = null
         statusMessage = null
         val cleaned = licenseCodeInput.trim().uppercase(Locale.ROOT)
         licenseCodeInput = cleaned
@@ -182,6 +184,7 @@ fun LicenseActivationScreen(
                 }
                 is LicenseActivationResult.Failure -> {
                     errorMessage = result.message
+                    errorDetail = result.errorDetail
                 }
             }
             isActivating = false
@@ -192,6 +195,7 @@ fun LicenseActivationScreen(
         if (isActivating || isRestoring) return
         keyboardController?.hide()
         errorMessage = null
+        errorDetail = null
         statusMessage = null
         coroutineScope.launch {
             isRestoring = true
@@ -354,9 +358,10 @@ fun LicenseActivationScreen(
                             // Auto uppercase & strip spaces/newlines cleanly
                             licenseCodeInput = raw.replace(" ", "").replace("\n", "").uppercase(Locale.ROOT)
                             if (errorMessage != null) errorMessage = null
+                            if (errorDetail != null) errorDetail = null
                         },
                         label = { Text("Kode Lisensi") },
-                        placeholder = { Text("Contoh: KAS-XXXX-XXXX") },
+                        placeholder = { Text("Contoh: RAFDEV-LFZA-L3K2") },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Key,
@@ -390,20 +395,36 @@ fun LicenseActivationScreen(
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
+                                verticalAlignment = Alignment.Top,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.ErrorOutline,
                                     contentDescription = null,
                                     tint = SoftDangerFg,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier
+                                        .padding(top = 1.dp)
+                                        .size(18.dp)
                                 )
-                                Text(
-                                    text = errorMessage.orEmpty(),
-                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                                    color = SoftDangerFg
-                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        text = errorMessage.orEmpty(),
+                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                        color = SoftDangerFg
+                                    )
+                                    if (!errorDetail.isNullOrBlank()) {
+                                        Text(
+                                            text = errorDetail.orEmpty(),
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 10.5.sp,
+                                                lineHeight = 14.sp
+                                            ),
+                                            color = SoftDangerFg.copy(alpha = 0.85f),
+                                            modifier = Modifier.testTag("license_error_detail")
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

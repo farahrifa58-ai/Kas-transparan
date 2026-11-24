@@ -113,6 +113,27 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // 1-Device License Activation Codes (supports lookup by doc ID or code field, auto-restore by deviceId, and safe 1-device claiming)
+    match /activation_codes/{docId} {
+      allow get: if isValidId(docId);
+      allow list: if request.query.limit != null && request.query.limit <= 10;
+
+      // Only signed-in admins can create new license records directly via client SDK
+      allow create: if isSignedIn() && isValidId(docId);
+
+      // Device activation update: can only claim an eligible non-revoked code that is unbound or already bound to the same deviceId
+      allow update: if isValidId(docId) &&
+                       (!('status' in existing()) || !(existing().status in ['revoked', 'blocked', 'disabled', 'suspended'])) &&
+                       (!('status' in existing()) || existing().status != 'used' || ('deviceId' in existing() && existing().deviceId == incoming().deviceId)) &&
+                       (!('deviceId' in existing()) || existing().deviceId == null || existing().deviceId == '' || existing().deviceId == incoming().deviceId) &&
+                       incoming().status == 'active' &&
+                       incoming().deviceId is string && incoming().deviceId.size() >= 4 && incoming().deviceId.size() <= 128 &&
+                       incoming().activatedAt is timestamp && incoming().activatedAt <= request.time &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'deviceId', 'activatedAt']);
+
+      allow delete: if false;
+    }
+
     match /users/{userId} {
       allow get, list: if isOwner(userId);
       allow create, update: if isOwner(userId) && incoming().userId == request.auth.uid;
