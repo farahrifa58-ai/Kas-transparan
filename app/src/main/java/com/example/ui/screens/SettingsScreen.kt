@@ -93,8 +93,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.model.AppSettings
 import com.example.ui.KasUiState
 import com.example.ui.KasViewModel
+import com.example.ui.components.PublicTransparencyCard
 import com.example.util.CurrencyHelper
 import com.example.util.LanguageHelper
 
@@ -104,13 +106,16 @@ fun SettingsScreen(
     state: KasUiState,
     viewModel: KasViewModel,
     onBack: () -> Unit,
-    onSignOut: () -> Unit
+    onSignOut: () -> Unit,
+    onOpenPublicPreview: (String) -> Unit = {}
 ) {
     val lang = state.settings.language
 
     var groupName by remember(state.settings.groupName) { mutableStateOf(state.settings.groupName) }
+    var description by remember(state.settings.description) { mutableStateOf(state.settings.description) }
     var adminName by remember(state.settings.adminName) { mutableStateOf(state.settings.adminName) }
     var initialBalanceText by remember(state.settings.initialBalance) { mutableStateOf(CurrencyHelper.formatInput(state.settings.initialBalance.toString())) }
+    var publicBaseUrl by remember(state.settings.publicBaseUrl) { mutableStateOf(state.settings.publicBaseUrl) }
     var selectedThemeMode by remember(state.settings.themeMode) { mutableStateOf(state.settings.themeMode) }
     var selectedLanguage by remember(state.settings.language) { mutableStateOf(state.settings.language) }
     var selectedCurrency by remember(state.settings.currencyCode) { mutableStateOf(state.settings.currencyCode) }
@@ -139,8 +144,10 @@ fun SettingsScreen(
                             showRestoreSuccessDialog = true
                             val currentSettings = viewModel.settings.value
                             groupName = currentSettings.groupName
+                            description = currentSettings.description
                             adminName = currentSettings.adminName
                             initialBalanceText = CurrencyHelper.formatInput(currentSettings.initialBalance.toString())
+                            publicBaseUrl = currentSettings.publicBaseUrl
                             selectedThemeMode = currentSettings.themeMode
                             selectedLanguage = currentSettings.language
                             selectedCurrency = currentSettings.currencyCode
@@ -184,11 +191,15 @@ fun SettingsScreen(
                     Button(
                         onClick = {
                             val initial = CurrencyHelper.parseCleanAmount(initialBalanceText)
+                            val cleanBaseUrl = publicBaseUrl.trim().trimEnd('/')
+                                .ifBlank { AppSettings.DEFAULT_PUBLIC_BASE_URL }
                             viewModel.saveSettings(
                                 state.settings.copy(
                                     groupName = groupName.trim(),
+                                    description = description.trim(),
                                     adminName = adminName.trim(),
                                     initialBalance = initial,
+                                    publicBaseUrl = cleanBaseUrl,
                                     themeMode = selectedThemeMode,
                                     language = selectedLanguage,
                                     currencyCode = selectedCurrency
@@ -266,6 +277,23 @@ fun SettingsScreen(
                     )
 
                     OutlinedTextField(
+                        value = description,
+                        onValueChange = { description = it },
+                        label = {
+                            Text(
+                                if (selectedLanguage.startsWith("en", ignoreCase = true))
+                                    "Description / Secretariat Address (Optional)"
+                                else
+                                    "Keterangan / Alamat Sekretariat (Opsional)"
+                            )
+                        },
+                        placeholder = { Text("Contoh: Jl. Melati No. 12, Kel. Sukamaju") },
+                        modifier = Modifier.fillMaxWidth().testTag("input_group_description"),
+                        shape = RoundedCornerShape(10.dp),
+                        maxLines = 2
+                    )
+
+                    OutlinedTextField(
                         value = adminName,
                         onValueChange = { adminName = it },
                         label = { Text(LanguageHelper.getString("admin_name", selectedLanguage)) },
@@ -314,6 +342,54 @@ fun SettingsScreen(
                             }
                         }
                     }
+                }
+            }
+
+            // A2. TRANSPARANSI ONLINE (LAPORAN PUBLIK 1 LINK)
+            PublicTransparencyCard(
+                state = state,
+                viewModel = viewModel,
+                onOpenPublicPreview = onOpenPublicPreview
+            )
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings_public_url_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = if (selectedLanguage.startsWith("en", ignoreCase = true))
+                            "Public Web Viewer Base URL (Optional)"
+                        else
+                            "Domain Web Laporan Publik (Opsional)",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                    Text(
+                        text = if (selectedLanguage.startsWith("en", ignoreCase = true))
+                            "Public links automatically append /#/lihat/${state.settings.publicKasId}. Leave default or point to your hosted laporan-publik.html."
+                        else
+                            "Tautan publik otomatis memakai akhiran /#/lihat/${state.settings.publicKasId}. Biarkan standar atau isi alamat web hosting laporan-publik.html Anda.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = publicBaseUrl,
+                        onValueChange = { publicBaseUrl = it },
+                        label = { Text("Base URL") },
+                        placeholder = { Text(AppSettings.DEFAULT_PUBLIC_BASE_URL) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_public_base_url"),
+                        shape = RoundedCornerShape(10.dp)
+                    )
                 }
             }
 

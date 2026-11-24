@@ -1,14 +1,26 @@
 package com.example
 
+import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.ArrowDownward
@@ -16,6 +28,8 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,168 +44,150 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
-import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.data.model.AppSettings
+import com.example.data.model.PublicKasHelper
 import com.example.data.repository.KasRepository
 import com.example.ui.KasViewModel
-import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.ExpenseScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.IncomeScreen
+import com.example.ui.screens.PublicReportScreen
 import com.example.ui.screens.ReportScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.signOutAdmin
 import com.example.ui.theme.KasTransparanTheme
 import com.example.util.LanguageHelper
-import com.google.firebase.Firebase
 import com.google.firebase.FirebaseApp
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.auth.auth
-
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
-import com.example.ui.theme.SoftSkyBlueGradient
 import kotlinx.coroutines.delay
 
-import android.util.Log
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.ui.graphics.graphicsLayer
-import com.google.firebase.FirebaseOptions
-
 class MainActivity : ComponentActivity() {
+    private var deepLinkPublicKasId by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         try {
             if (FirebaseApp.getApps(this).isEmpty()) {
-                val options = FirebaseOptions.fromResource(this)
-                if (options != null) {
-                    FirebaseApp.initializeApp(this, options)
-                } else {
-                    val fallbackOptions = FirebaseOptions.Builder()
-                        .setApplicationId(packageName)
-                        .setProjectId("ai-studio-kas-transparan")
-                        .setApiKey("AIzaSyFallbackKeyForKasTransparan2026")
-                        .setDatabaseUrl("https://ai-studio-kas-transparan.firebaseio.com")
-                        .build()
-                    FirebaseApp.initializeApp(this, fallbackOptions)
-                }
+                FirebaseApp.initializeApp(this)
             }
         } catch (e: Exception) {
             Log.e("MainActivity", "FirebaseApp init error", e)
-            try {
-                val fallbackOptions = FirebaseOptions.Builder()
-                    .setApplicationId(packageName)
-                    .setProjectId("ai-studio-kas-transparan")
-                    .setApiKey("AIzaSyFallbackKeyForKasTransparan2026")
-                    .build()
-                FirebaseApp.initializeApp(this, fallbackOptions)
-            } catch (e2: Exception) {
-                Log.e("MainActivity", "Secondary fallback init error", e2)
-            }
         }
+
+        deepLinkPublicKasId = PublicKasHelper.extractPublicKasIdFromUri(intent?.data)
         enableEdgeToEdge()
 
         setContent {
-            var isSplashVisible by remember { mutableStateOf(true) }
-            LaunchedEffect(Unit) {
-                delay(1200L)
-                isSplashVisible = false
-            }
-
-            val splashAlpha by animateFloatAsState(
-                targetValue = if (isSplashVisible) 1f else 0f,
-                animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
-                label = "splash_alpha"
-            )
-
-            val mainAlpha by animateFloatAsState(
-                targetValue = if (isSplashVisible) 0f else 1f,
-                animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
-                label = "main_alpha"
-            )
-
             val repository = remember { KasRepository.getInstance(applicationContext) }
-            val appSettings by repository.observeSettings("local_admin").collectAsState(initial = com.example.data.model.AppSettings())
+            val appSettings by repository.observeSettings("local_admin")
+                .collectAsState(initial = AppSettings())
             val themeMode = appSettings?.themeMode ?: "LIGHT"
 
+            val incomingPublicId = deepLinkPublicKasId
+
             KasTransparanTheme(themeMode = themeMode) {
-                val isLight = MaterialTheme.colorScheme.background == com.example.ui.theme.AppBackgroundLight
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(if (isLight) Color.White else MaterialTheme.colorScheme.background)
-                ) {
-                    if (mainAlpha > 0f) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer { alpha = mainAlpha }
-                        ) {
-                            AppMainContent(
-                                userId = "local_admin",
-                                onSignOut = {}
-                            )
+                if (incomingPublicId != null) {
+                    // Direct Read-Only Public Report mode (NO treasurer menus, NO edit/add/delete)
+                    PublicReportScreen(
+                        publicKasId = incomingPublicId,
+                        repository = repository,
+                        isFromDeepLink = true,
+                        onExitPublicMode = {
+                            deepLinkPublicKasId = null
                         }
+                    )
+                } else {
+                    var isSplashVisible by remember { mutableStateOf(true) }
+                    LaunchedEffect(Unit) {
+                        delay(1200L)
+                        isSplashVisible = false
                     }
 
-                    if (splashAlpha > 0f) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer { alpha = splashAlpha }
-                        ) {
-                            SplashScreen()
+                    val splashAlpha by animateFloatAsState(
+                        targetValue = if (isSplashVisible) 1f else 0f,
+                        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+                        label = "splash_alpha"
+                    )
+
+                    val mainAlpha by animateFloatAsState(
+                        targetValue = if (isSplashVisible) 0f else 1f,
+                        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+                        label = "main_alpha"
+                    )
+
+                    val isLight = MaterialTheme.colorScheme.background == com.example.ui.theme.AppBackgroundLight
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(if (isLight) Color.White else MaterialTheme.colorScheme.background)
+                    ) {
+                        if (mainAlpha > 0f) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer { alpha = mainAlpha }
+                            ) {
+                                AppMainContent(
+                                    userId = "local_admin",
+                                    onSignOut = {}
+                                )
+                            }
+                        }
+
+                        if (splashAlpha > 0f) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer { alpha = splashAlpha }
+                            ) {
+                                SplashScreen()
+                            }
                         }
                     }
                 }
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val extracted = PublicKasHelper.extractPublicKasIdFromUri(intent.data)
+        if (extracted != null) {
+            deepLinkPublicKasId = extracted
+        }
+    }
 }
 
 @Composable
 fun SplashScreen() {
-    val blueWhiteGradient = androidx.compose.ui.graphics.Brush.verticalGradient(
+    val blueWhiteGradient = Brush.verticalGradient(
         colors = listOf(
-            Color(0xFF0277BD), // Biru laut cerah di atas
-            Color(0xFF29B6F6), // Biru langit
-            Color(0xFFE1F5FE), // Transisi biru muda lembut
-            Color(0xFFFFFFFF)  // Putih bersih di bawah
+            Color(0xFF0277BD),
+            Color(0xFF29B6F6),
+            Color(0xFFE1F5FE),
+            Color(0xFFFFFFFF)
         )
     )
 
@@ -273,6 +269,7 @@ fun AppMainContent(
     val themeMode = uiState.settings.themeMode
 
     var currentScreen by remember { mutableStateOf(MainNavScreen.DASHBOARD) }
+    var activePublicPreviewId by remember { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(uiState.userFeedbackMessage) {
@@ -283,12 +280,21 @@ fun AppMainContent(
     }
 
     // Handle back button on sub-screens
-    BackHandler(enabled = currentScreen != MainNavScreen.DASHBOARD) {
+    BackHandler(enabled = activePublicPreviewId == null && currentScreen != MainNavScreen.DASHBOARD) {
         currentScreen = MainNavScreen.DASHBOARD
     }
 
     KasTransparanTheme(themeMode = themeMode) {
-        if (currentScreen == MainNavScreen.SETTINGS) {
+        val previewId = activePublicPreviewId
+        if (previewId != null) {
+            // Full-screen Read-Only Public Report mode
+            PublicReportScreen(
+                publicKasId = previewId,
+                repository = repository,
+                isFromDeepLink = false,
+                onExitPublicMode = { activePublicPreviewId = null }
+            )
+        } else if (currentScreen == MainNavScreen.SETTINGS) {
             SettingsScreen(
                 state = uiState,
                 viewModel = viewModel,
@@ -297,10 +303,14 @@ fun AppMainContent(
                     signOutAdmin(
                         context = context,
                         credentialManager = credentialManager,
-                        onSignOutComplete = onSignOut,
+                        onSignOutComplete = {
+                            viewModel.refreshAuthStatus()
+                            onSignOut()
+                        },
                         scope = coroutineScope
                     )
-                }
+                },
+                onOpenPublicPreview = { kasId -> activePublicPreviewId = kasId }
             )
         } else {
             val isLight = MaterialTheme.colorScheme.background == com.example.ui.theme.AppBackgroundLight
@@ -317,7 +327,6 @@ fun AppMainContent(
                             )
                         },
                         actions = {
-                            // Settings Icon in Top Right Corner as mandated
                             IconButton(
                                 onClick = { currentScreen = MainNavScreen.SETTINGS },
                                 modifier = Modifier.testTag("top_settings_button")
@@ -335,13 +344,11 @@ fun AppMainContent(
                     )
                 },
                 bottomBar = {
-                    // Exactly 5 Main Navigation Items
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
                         tonalElevation = 8.dp,
                         modifier = Modifier.testTag("main_bottom_nav")
                     ) {
-                        // 1. Dashboard
                         NavigationBarItem(
                             selected = currentScreen == MainNavScreen.DASHBOARD,
                             onClick = { currentScreen = MainNavScreen.DASHBOARD },
@@ -363,7 +370,6 @@ fun AppMainContent(
                             modifier = Modifier.testTag("nav_item_dashboard")
                         )
 
-                        // 2. Kas Masuk
                         NavigationBarItem(
                             selected = currentScreen == MainNavScreen.INCOME,
                             onClick = { currentScreen = MainNavScreen.INCOME },
@@ -385,7 +391,6 @@ fun AppMainContent(
                             modifier = Modifier.testTag("nav_item_income")
                         )
 
-                        // 3. Kas Keluar
                         NavigationBarItem(
                             selected = currentScreen == MainNavScreen.EXPENSE,
                             onClick = { currentScreen = MainNavScreen.EXPENSE },
@@ -407,7 +412,6 @@ fun AppMainContent(
                             modifier = Modifier.testTag("nav_item_expense")
                         )
 
-                        // 4. Riwayat
                         NavigationBarItem(
                             selected = currentScreen == MainNavScreen.HISTORY,
                             onClick = { currentScreen = MainNavScreen.HISTORY },
@@ -429,7 +433,6 @@ fun AppMainContent(
                             modifier = Modifier.testTag("nav_item_history")
                         )
 
-                        // 5. Laporan Keuangan
                         NavigationBarItem(
                             selected = currentScreen == MainNavScreen.REPORT,
                             onClick = { currentScreen = MainNavScreen.REPORT },
@@ -461,12 +464,14 @@ fun AppMainContent(
                     when (currentScreen) {
                         MainNavScreen.DASHBOARD -> DashboardScreen(
                             state = uiState,
+                            viewModel = viewModel,
                             onPeriodSelected = { period -> viewModel.setPeriodFilter(period) },
                             onNavigateToIncome = { currentScreen = MainNavScreen.INCOME },
                             onNavigateToExpense = { currentScreen = MainNavScreen.EXPENSE },
                             onNavigateToHistory = { currentScreen = MainNavScreen.HISTORY },
                             onAddInitialBalance = { amount, note -> viewModel.addInitialBalance(amount, note) },
-                            onSetInitialBalance = { amount, note -> viewModel.setInitialBalance(amount, note) }
+                            onSetInitialBalance = { amount, note -> viewModel.setInitialBalance(amount, note) },
+                            onOpenPublicPreview = { kasId -> activePublicPreviewId = kasId }
                         )
                         MainNavScreen.INCOME -> IncomeScreen(
                             state = uiState,
@@ -483,7 +488,9 @@ fun AppMainContent(
                             viewModel = viewModel
                         )
                         MainNavScreen.REPORT -> ReportScreen(
-                            state = uiState
+                            state = uiState,
+                            viewModel = viewModel,
+                            onOpenPublicPreview = { kasId -> activePublicPreviewId = kasId }
                         )
                         MainNavScreen.SETTINGS -> { /* Handled above */ }
                     }

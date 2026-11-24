@@ -16,7 +16,11 @@ service cloud.firestore {
     }
 
     function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidPublicKasId(id) {
+      return id is string && id.size() >= 7 && id.size() <= 32 && id.matches('^KAS-[A-Z0-9]{4,28}$');
     }
 
     function incoming() {
@@ -45,11 +49,17 @@ service cloud.firestore {
       return data.userId is string && data.userId == request.auth.uid &&
              data.groupName is string && data.groupName.size() >= 1 && data.groupName.size() <= 200 &&
              (!('adminName' in data) || (data.adminName is string && data.adminName.size() <= 100)) &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 500)) &&
              data.initialBalance is int &&
              data.currencyCode is string && data.currencyCode.size() >= 3 && data.currencyCode.size() <= 5 &&
-             data.language in ['id', 'en'] &&
+             data.language is string && data.language.size() >= 2 && data.language.size() <= 10 &&
              (!('themeMode' in data) || data.themeMode in ['SYSTEM', 'LIGHT', 'DARK']) &&
-             (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 2000));
+             (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 2000)) &&
+             (!('publicKasId' in data) || (data.publicKasId is string && data.publicKasId.size() <= 32)) &&
+             (!('writeSecret' in data) || (data.writeSecret is string && data.writeSecret.size() <= 64)) &&
+             (!('publicAutoSync' in data) || data.publicAutoSync is bool) &&
+             (!('publicLastSyncedAt' in data) || data.publicLastSyncedAt is int) &&
+             (!('publicBaseUrl' in data) || (data.publicBaseUrl is string && data.publicBaseUrl.size() <= 500));
     }
 
     function isValidAuditLog(data) {
@@ -58,6 +68,49 @@ service cloud.firestore {
              data.action in ['CREATE', 'UPDATE', 'VOID'] &&
              data.details is string && data.details.size() <= 2000 &&
              (!('reason' in data) || (data.reason is string && data.reason.size() <= 500));
+    }
+
+    function isValidPublicKas(data) {
+      return data.keys().hasAll(['writeSecret', 'groupName', 'totalBalance', 'totalIncome', 'totalExpense', 'updatedAt', 'transactions']) &&
+             data.keys().hasOnly(['writeSecret', 'ownerUid', 'groupName', 'description', 'currencyCode', 'initialBalance', 'totalBalance', 'totalIncome', 'totalExpense', 'updatedAt', 'transactions']) &&
+             data.writeSecret is string && data.writeSecret.size() >= 16 && data.writeSecret.size() <= 64 &&
+             (!('ownerUid' in data) || (data.ownerUid is string && data.ownerUid.size() <= 128)) &&
+             data.groupName is string && data.groupName.size() >= 1 && data.groupName.size() <= 120 &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 500)) &&
+             (!('currencyCode' in data) || (data.currencyCode is string && data.currencyCode.size() >= 3 && data.currencyCode.size() <= 5)) &&
+             (!('initialBalance' in data) || data.initialBalance is int) &&
+             data.totalBalance is int &&
+             data.totalIncome is int && data.totalIncome >= 0 &&
+             data.totalExpense is int && data.totalExpense >= 0 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time &&
+             data.transactions is list && data.transactions.size() <= 2000 &&
+             (data.transactions.size() == 0 || data.transactions[0] is map);
+    }
+
+    // Public Read-Only Cash Transparency Reports (1-Link Citizen Viewer + Group Write Secret Protection)
+    match /public_kas/{publicKasId} {
+      // Anyone with the exact KAS-XXXXXXXX ID can view read-only without signing in; listing all groups is forbidden
+      allow get: if isValidPublicKasId(publicKasId);
+      allow list: if false;
+
+      // Treasurer creates a new public report directly without login, establishing the immutable 24-char writeSecret
+      allow create: if isValidPublicKasId(publicKasId) &&
+                       isValidPublicKas(incoming());
+
+      // Only the holder of the matching immutable writeSecret can update this publicKasId document
+      allow update: if isValidPublicKasId(publicKasId) &&
+                       isValidPublicKas(incoming()) &&
+                       (
+                         ('writeSecret' in existing() &&
+                          existing().writeSecret is string &&
+                          incoming().writeSecret == existing().writeSecret) ||
+                         (!('writeSecret' in existing()) &&
+                          isSignedIn() &&
+                          existing().ownerUid == request.auth.uid)
+                       );
+
+      // Disallow arbitrary deletion of published public reports
+      allow delete: if false;
     }
 
     match /users/{userId} {

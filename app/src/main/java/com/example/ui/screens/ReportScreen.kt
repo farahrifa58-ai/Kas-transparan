@@ -62,6 +62,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.KasUiState
+import com.example.ui.KasViewModel
+import com.example.ui.components.PublicTransparencyCard
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
 import com.example.ui.theme.SoftSkyBlueGradient
@@ -81,7 +83,9 @@ import java.util.Locale
 
 @Composable
 fun ReportScreen(
-    state: KasUiState
+    state: KasUiState,
+    viewModel: KasViewModel,
+    onOpenPublicPreview: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val lang = state.settings.language
@@ -293,6 +297,15 @@ fun ReportScreen(
                         )
                     }
                 }
+            }
+
+            // Public 1-Link Real-Time Transparency Card
+            item {
+                PublicTransparencyCard(
+                    state = state,
+                    viewModel = viewModel,
+                    onOpenPublicPreview = onOpenPublicPreview
+                )
             }
 
             // Notice Banner when PDF is saved directly to Download folder

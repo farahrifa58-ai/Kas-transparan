@@ -192,5 +192,45 @@ object WhatsAppShareHelper {
             Toast.makeText(context, "Gagal membagikan berkas: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
         }
     }
+
+    fun copyTextToClipboard(context: Context, label: String, text: String, toastMessage: String? = null) {
+        try {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = ClipData.newPlainText(label, text)
+            clipboard.setPrimaryClip(clip)
+            if (!toastMessage.isNullOrBlank()) {
+                Toast.makeText(context, toastMessage, Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "Gagal menyalin: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun shareTextToWhatsApp(context: Context, message: String) {
+        try {
+            copyTextToClipboard(context, "Laporan Publik Kas", message)
+
+            val waIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, message)
+                setPackage("com.whatsapp")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            try {
+                context.startActivity(waIntent)
+            } catch (_: Exception) {
+                val fallbackIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "Laporan Publik Kas Transparan")
+                    putExtra(Intent.EXTRA_TEXT, message)
+                }
+                val chooser = Intent.createChooser(fallbackIntent, "Bagikan Link Laporan Publik")
+                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(chooser)
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "Gagal membagikan link: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+        }
+    }
 }
 

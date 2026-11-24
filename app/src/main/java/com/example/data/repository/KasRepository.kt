@@ -6,22 +6,34 @@ import android.util.Log
 import com.example.R
 import com.example.data.model.AppSettings
 import com.example.data.model.AuditLog
+import com.example.data.model.PublicAuthRequiredException
+import com.example.data.model.PublicKasHelper
+import com.example.data.model.PublicKasReport
+import com.example.data.model.PublicKasTransaction
+import com.example.data.model.PublicKasUiState
 import com.example.data.model.Transaction
 import com.example.data.util.OperationType
 import com.example.data.util.handleFirestoreError
 import com.google.firebase.Firebase
 import com.google.firebase.FirebaseApp
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.snapshots
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import org.json.JSONArray
@@ -34,24 +46,15 @@ class KasRepository(
 ) {
 
     constructor(context: Context) : this(
-        try {
-            val dbId = context.applicationContext.getString(R.string.firestore_database_id)
-            if (FirebaseApp.getApps(context).isNotEmpty()) {
-                FirebaseFirestore.getInstance(FirebaseApp.getInstance(), dbId)
-            } else {
-                FirebaseFirestore.getInstance()
-            }
-        } catch (_: Exception) {
-            try {
-                FirebaseFirestore.getInstance()
-            } catch (_: Exception) {
-                FirebaseFirestore.getInstance()
-            }
-        },
+        FirebaseFirestore.getInstance(
+            FirebaseApp.getInstance(),
+            context.applicationContext.getString(R.string.firestore_database_id)
+        ),
         context.applicationContext
     )
 
-    private val prefs: SharedPreferences? = context?.getSharedPreferences("kas_transparan_local_data", Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences? =
+        context?.getSharedPreferences("kas_transparan_local_data", Context.MODE_PRIVATE)
 
     private val auth: FirebaseAuth?
         get() = try {
@@ -83,11 +86,20 @@ class KasRepository(
         return auth?.currentUser?.uid ?: "admin_local"
     }
 
+    fun getSignedInTreasurerEmail(): String? {
+        return auth?.currentUser?.email ?: auth?.currentUser?.displayName
+    }
+
+    fun isTreasurerSignedIn(): Boolean {
+        return auth?.currentUser != null
+    }
+
     private val _settingsFlow: MutableStateFlow<AppSettings>
         get() {
             if (_sharedSettingsFlow.value == null) {
                 _sharedSettingsFlow.value = loadSettingsLocal()
             }
+            @Suppress("UNCHECKED_CAST")
             return _sharedSettingsFlow as MutableStateFlow<AppSettings>
         }
 
@@ -96,6 +108,7 @@ class KasRepository(
             if (_sharedTransactionsFlow.value == null) {
                 _sharedTransactionsFlow.value = loadTransactionsLocal()
             }
+            @Suppress("UNCHECKED_CAST")
             return _sharedTransactionsFlow as MutableStateFlow<List<Transaction>>
         }
 
@@ -104,42 +117,89 @@ class KasRepository(
             if (_sharedAuditLogsFlow.value == null) {
                 _sharedAuditLogsFlow.value = loadAuditLogsLocal()
             }
+            @Suppress("UNCHECKED_CAST")
             return _sharedAuditLogsFlow as MutableStateFlow<List<AuditLog>>
         }
 
     fun loadSettingsLocal(): AppSettings {
-        val jsonStr = prefs?.getString("settings_data", null) ?: return AppSettings()
-        return try {
-            val json = JSONObject(jsonStr)
-            AppSettings(
-                userId = json.optString("userId", "admin_local"),
-                groupName = json.optString("groupName", "Kelompok Kas"),
-                adminName = json.optString("adminName", "Admin Kas"),
-                initialBalance = json.optLong("initialBalance", 0L),
-                currencyCode = json.optString("currencyCode", "IDR"),
-                language = json.optString("language", "id"),
-                themeMode = json.optString("themeMode", "LIGHT"),
-                logoUrl = json.optString("logoUrl", "")
-            )
-        } catch (e: Exception) {
+        val jsonStr = prefs?.getString("settings_data", null)
+        val parsed = if (jsonStr == null) {
             AppSettings()
+        } else {
+            try {
+                val json = JSONObject(jsonStr)
+                AppSettings(
+                    userId = json.optString("userId", "admin_local"),
+                    groupName = json.optString("groupName", "Kelompok Kas"),
+                    adminName = json.optString("adminName", "Admin Kas"),
+                    description = json.optString("description", ""),
+                    initialBalance = json.optLong("initialBalance", 0L),
+                    currencyCode = json.optString("currencyCode", "IDR"),
+                    language = json.optString("language", "id"),
+                    themeMode = json.optString("themeMode", "LIGHT"),
+                    logoUrl = json.optString("logoUrl", ""),
+                    publicKasId = json.optString("publicKasId", ""),
+                    writeSecret = json.optString("writeSecret", ""),
+                    publicAutoSync = json.optBoolean("publicAutoSync", false),
+                    publicLastSyncedAt = json.optLong("publicLastSyncedAt", 0L),
+                    publicBaseUrl = json.optString("publicBaseUrl", AppSettings.DEFAULT_PUBLIC_BASE_URL)
+                        .ifBlank { AppSettings.DEFAULT_PUBLIC_BASE_URL }
+                )
+            } catch (_: Exception) {
+                AppSettings()
+            }
+        }
+
+        // Auto-generate and permanently persist unique Public Kas ID + 24-char local writeSecret on first run
+        val needsId = !PublicKasHelper.isValidPublicKasId(parsed.publicKasId)
+        val needsSecret = !PublicKasHelper.isValidWriteSecret(parsed.writeSecret)
+        return if (needsId || needsSecret) {
+            val initialized = parsed.copy(
+                publicKasId = if (needsId) PublicKasHelper.generatePublicKasId() else parsed.publicKasId,
+                writeSecret = if (needsSecret) PublicKasHelper.generateWriteSecret() else parsed.writeSecret
+            )
+            saveSettingsLocal(initialized)
+            initialized
+        } else {
+            parsed
         }
     }
 
     private fun saveSettingsLocal(settings: AppSettings) {
         try {
+            val validPublicId = if (PublicKasHelper.isValidPublicKasId(settings.publicKasId)) {
+                settings.publicKasId
+            } else {
+                PublicKasHelper.generatePublicKasId()
+            }
+            val validWriteSecret = if (PublicKasHelper.isValidWriteSecret(settings.writeSecret)) {
+                settings.writeSecret
+            } else {
+                PublicKasHelper.generateWriteSecret()
+            }
+            val safeSettings = settings.copy(
+                publicKasId = validPublicId,
+                writeSecret = validWriteSecret,
+                publicBaseUrl = settings.publicBaseUrl.ifBlank { AppSettings.DEFAULT_PUBLIC_BASE_URL }
+            )
             val json = JSONObject().apply {
-                put("userId", settings.userId)
-                put("groupName", settings.groupName)
-                put("adminName", settings.adminName)
-                put("initialBalance", settings.initialBalance)
-                put("currencyCode", settings.currencyCode)
-                put("language", settings.language)
-                put("themeMode", settings.themeMode)
-                put("logoUrl", settings.logoUrl)
+                put("userId", safeSettings.userId)
+                put("groupName", safeSettings.groupName)
+                put("adminName", safeSettings.adminName)
+                put("description", safeSettings.description)
+                put("initialBalance", safeSettings.initialBalance)
+                put("currencyCode", safeSettings.currencyCode)
+                put("language", safeSettings.language)
+                put("themeMode", safeSettings.themeMode)
+                put("logoUrl", safeSettings.logoUrl)
+                put("publicKasId", safeSettings.publicKasId)
+                put("writeSecret", safeSettings.writeSecret)
+                put("publicAutoSync", safeSettings.publicAutoSync)
+                put("publicLastSyncedAt", safeSettings.publicLastSyncedAt)
+                put("publicBaseUrl", safeSettings.publicBaseUrl)
             }
             prefs?.edit()?.putString("settings_data", json.toString())?.apply()
-            _sharedSettingsFlow.value = settings
+            _sharedSettingsFlow.value = safeSettings
         } catch (e: Exception) {
             Log.e("KasRepository", "Error saving settings locally", e)
         }
@@ -153,7 +213,7 @@ class KasRepository(
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
                 val createdAtMillis = obj.optLong("createdAtMillis", 0L)
-                val createdAt = if (createdAtMillis > 0L) com.google.firebase.Timestamp(java.util.Date(createdAtMillis)) else null
+                val createdAt = if (createdAtMillis > 0L) Timestamp(java.util.Date(createdAtMillis)) else null
                 list.add(
                     Transaction(
                         id = obj.optString("id", UUID.randomUUID().toString()),
@@ -176,7 +236,7 @@ class KasRepository(
                 compareByDescending<Transaction> { it.date }
                     .thenByDescending { it.createdAt?.toDate()?.time ?: 0L }
             )
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             emptyList()
         }
     }
@@ -228,7 +288,7 @@ class KasRepository(
                 )
             }
             list
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             emptyList()
         }
     }
@@ -260,7 +320,7 @@ class KasRepository(
     private fun syncFirestoreTransactionsInBackground(userId: String) {
         if (isFirestoreTransactionsSyncing) return
         val currentAuthUid = auth?.currentUser?.uid
-        val targetUid = if (!currentAuthUid.isNullOrBlank()) currentAuthUid else if (userId.isNotBlank() && userId != "local_admin") userId else null
+        val targetUid = if (!currentAuthUid.isNullOrBlank()) currentAuthUid else null
         if (targetUid == null) return
 
         isFirestoreTransactionsSyncing = true
@@ -271,8 +331,9 @@ class KasRepository(
                     .collect { snapshot ->
                         val remoteList = snapshot.documents.mapNotNull { doc ->
                             try {
-                                doc.toObject(Transaction::class.java)?.copy(id = doc.id)
-                            } catch (e: Exception) {
+                                doc.toObject(Transaction::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                                    ?.copy(id = doc.id)
+                            } catch (_: Exception) {
                                 null
                             }
                         }.sortedWith(
@@ -283,8 +344,10 @@ class KasRepository(
                             saveTransactionsLocal(remoteList)
                         }
                     }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                Log.w("KasRepository", "Firestore observe transactions error: ${e.message}")
+                handleFirestoreError(e, OperationType.LIST, "users/$targetUid/transactions")
             } finally {
                 isFirestoreTransactionsSyncing = false
             }
@@ -302,7 +365,7 @@ class KasRepository(
     private fun syncFirestoreSettingsInBackground(userId: String) {
         if (isFirestoreSettingsSyncing) return
         val currentAuthUid = auth?.currentUser?.uid
-        val targetUid = if (!currentAuthUid.isNullOrBlank()) currentAuthUid else if (userId.isNotBlank() && userId != "local_admin") userId else null
+        val targetUid = if (!currentAuthUid.isNullOrBlank()) currentAuthUid else null
         if (targetUid == null) return
 
         isFirestoreSettingsSyncing = true
@@ -312,14 +375,33 @@ class KasRepository(
                     .snapshots()
                     .collect { doc ->
                         if (doc.exists()) {
-                            val remote = doc.toObject(AppSettings::class.java)
+                            val remote = doc.toObject(AppSettings::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
                             if (remote != null) {
-                                saveSettingsLocal(remote)
+                                val currentLocal = _settingsFlow.value
+                                val mergedId = if (PublicKasHelper.isValidPublicKasId(remote.publicKasId)) {
+                                    remote.publicKasId
+                                } else {
+                                    currentLocal.publicKasId
+                                }
+                                val mergedSecret = if (PublicKasHelper.isValidWriteSecret(remote.writeSecret)) {
+                                    remote.writeSecret
+                                } else {
+                                    currentLocal.writeSecret
+                                }
+                                saveSettingsLocal(
+                                    remote.copy(
+                                        publicKasId = mergedId,
+                                        writeSecret = mergedSecret,
+                                        publicLastSyncedAt = maxOf(remote.publicLastSyncedAt, currentLocal.publicLastSyncedAt)
+                                    )
+                                )
                             }
                         }
                     }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                Log.w("KasRepository", "Firestore observe settings error: ${e.message}")
+                handleFirestoreError(e, OperationType.GET, "users/$targetUid/settings/config")
             } finally {
                 isFirestoreSettingsSyncing = false
             }
@@ -335,30 +417,247 @@ class KasRepository(
         return _auditLogsFlow.asStateFlow()
     }
 
-    suspend fun saveSettings(settings: AppSettings): Result<Unit> {
-        saveSettingsLocal(settings)
+    // --- PUBLIC 1-LINK REAL-TIME TRANSPARENCY (public_kas/{publicKasId}) ---
 
-        // Asynchronously mirror to Firestore if available without blocking UI
-        val uid = requireUserId()
-        try {
-            val docRef = db.collection("users").document(uid).collection("settings").document("config")
+    suspend fun publishPublicKasReport(): Result<Long> {
+        val ctx = context
+        if (ctx != null && !PublicKasHelper.isOnline(ctx)) {
+            return Result.failure(
+                Exception("Perangkat sedang offline. Hubungkan ke internet untuk memperbarui Laporan Publik.")
+            )
+        }
+
+        val currentSettings = _settingsFlow.value
+        val publicKasId = if (PublicKasHelper.isValidPublicKasId(currentSettings.publicKasId)) {
+            currentSettings.publicKasId
+        } else {
+            PublicKasHelper.generatePublicKasId()
+        }
+        val writeSecret = if (PublicKasHelper.isValidWriteSecret(currentSettings.writeSecret)) {
+            currentSettings.writeSecret
+        } else {
+            PublicKasHelper.generateWriteSecret()
+        }
+        if (publicKasId != currentSettings.publicKasId || writeSecret != currentSettings.writeSecret) {
+            saveSettingsLocal(
+                currentSettings.copy(
+                    publicKasId = publicKasId,
+                    writeSecret = writeSecret
+                )
+            )
+        }
+
+        val activeTransactions = _transactionsFlow.value
+            .filter { it.status == "ACTIVE" }
+            .sortedWith(
+                compareByDescending<Transaction> { it.date }
+                    .thenByDescending { it.createdAt?.toDate()?.time ?: 0L }
+            )
+
+        val totalIncome = activeTransactions.filter { it.type == "INCOME" }.sumOf { it.amount }
+        val totalExpense = activeTransactions.filter { it.type == "EXPENSE" }.sumOf { it.amount }
+        val totalBalance = currentSettings.initialBalance + totalIncome - totalExpense
+
+        val publicTransactions = activeTransactions.take(2000).map { tx ->
+            mapOf(
+                "id" to tx.id,
+                "title" to tx.title.take(200),
+                "category" to tx.category.ifBlank { "Umum" }.take(100),
+                "type" to if (tx.type == "INCOME") "income" else "expense",
+                "amount" to tx.amount.coerceAtLeast(0L),
+                "date" to tx.date,
+                "notes" to tx.description.take(500)
+            )
+        }
+
+        val payload = hashMapOf<String, Any>(
+            "writeSecret" to writeSecret,
+            "ownerUid" to (auth?.currentUser?.uid ?: ""),
+            "groupName" to currentSettings.groupName.ifBlank { "Kas Transparan" }.take(120),
+            "description" to currentSettings.description.take(500),
+            "currencyCode" to currentSettings.currencyCode.ifBlank { "IDR" }.take(5),
+            "initialBalance" to currentSettings.initialBalance,
+            "totalBalance" to totalBalance,
+            "totalIncome" to totalIncome.coerceAtLeast(0L),
+            "totalExpense" to totalExpense.coerceAtLeast(0L),
+            "updatedAt" to FieldValue.serverTimestamp(),
+            "transactions" to publicTransactions
+        )
+
+        val path = "public_kas/$publicKasId"
+        return try {
+            db.collection("public_kas").document(publicKasId).set(payload).await()
+            val syncedNow = System.currentTimeMillis()
+            saveSettingsLocal(
+                _settingsFlow.value.copy(
+                    publicKasId = publicKasId,
+                    writeSecret = writeSecret,
+                    publicLastSyncedAt = syncedNow
+                )
+            )
+            Result.success(syncedNow)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, path)
+            val friendlyMsg = when {
+                e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED ->
+                    "Kunci pengaman kelompok tidak cocok untuk ID Kas ini. Pulihkan cadangan data bendahara jika Anda baru berganti HP."
+                e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.UNAVAILABLE ->
+                    "Server tidak dapat dijangkau. Periksa koneksi internet Anda."
+                else -> e.localizedMessage ?: "Gagal menyinkronkan laporan ke web."
+            }
+            Result.failure(Exception(friendlyMsg, e))
+        }
+    }
+
+    private fun triggerAutoSyncIfEnabled() {
+        val currentSettings = _settingsFlow.value
+        val ctx = context ?: return
+        if (!currentSettings.publicAutoSync) return
+        if (!PublicKasHelper.isOnline(ctx)) return
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                publishPublicKasReport()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w("KasRepository", "Background public auto-sync skipped: ${e.message}")
+            }
+        }
+    }
+
+    fun observePublicKasReport(rawKasId: String): Flow<PublicKasUiState> {
+        val cleanId = PublicKasHelper.normalizePublicKasId(rawKasId)
+        if (!PublicKasHelper.isValidPublicKasId(cleanId)) {
+            return flowOf(PublicKasUiState.NotFound(rawKasId.trim()))
+        }
+
+        val path = "public_kas/$cleanId"
+        return db.collection("public_kas")
+            .document(cleanId)
+            .snapshots()
+            .map { snapshot ->
+                if (!snapshot.exists()) {
+                    PublicKasUiState.NotFound(cleanId)
+                } else {
+                    val data = snapshot.getData(DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                        ?: return@map PublicKasUiState.NotFound(cleanId)
+
+                    val rawTxList = data["transactions"] as? List<*> ?: emptyList<Any>()
+                    val parsedTransactions = rawTxList.mapNotNull { item ->
+                        val map = item as? Map<*, *> ?: return@mapNotNull null
+                        val rawType = (map["type"] as? String)?.lowercase() ?: "income"
+                        PublicKasTransaction(
+                            id = (map["id"] as? String).orEmpty(),
+                            title = (map["title"] as? String).orEmpty(),
+                            category = (map["category"] as? String).orEmpty().ifBlank { "Umum" },
+                            type = if (rawType == "expense") "expense" else "income",
+                            amount = (map["amount"] as? Number)?.toLong() ?: 0L,
+                            date = (map["date"] as? String).orEmpty(),
+                            notes = (map["notes"] as? String).orEmpty()
+                        )
+                    }
+
+                    val updatedAtMillis = when (val ts = data["updatedAt"]) {
+                        is Timestamp -> ts.toDate().time
+                        is Number -> ts.toLong()
+                        else -> 0L
+                    }
+
+                    PublicKasUiState.Success(
+                        PublicKasReport(
+                            publicKasId = cleanId,
+                            ownerUid = (data["ownerUid"] as? String).orEmpty(),
+                            groupName = (data["groupName"] as? String).orEmpty().ifBlank { "Kas Transparan" },
+                            description = (data["description"] as? String).orEmpty(),
+                            currencyCode = (data["currencyCode"] as? String).orEmpty().ifBlank { "IDR" },
+                            initialBalance = (data["initialBalance"] as? Number)?.toLong() ?: 0L,
+                            totalBalance = (data["totalBalance"] as? Number)?.toLong() ?: 0L,
+                            totalIncome = (data["totalIncome"] as? Number)?.toLong() ?: 0L,
+                            totalExpense = (data["totalExpense"] as? Number)?.toLong() ?: 0L,
+                            updatedAtMillis = updatedAtMillis,
+                            transactions = parsedTransactions
+                        )
+                    )
+                }
+            }
+            .onStart { emit(PublicKasUiState.Loading) }
+            .catch { error ->
+                val firestoreError = generateSequence(error) { it.cause }
+                    .filterIsInstance<FirebaseFirestoreException>()
+                    .firstOrNull()
+                if (error is CancellationException && firestoreError == null) {
+                    throw error
+                }
+                val root = firestoreError ?: error
+                handleFirestoreError(root, OperationType.GET, path)
+                emit(
+                    PublicKasUiState.Error(
+                        root.localizedMessage ?: "Gagal memuat laporan publik. Periksa koneksi internet Anda."
+                    )
+                )
+            }
+    }
+
+    // --- OFFLINE-FIRST TREASURER MUTATIONS ---
+
+    suspend fun saveSettings(settings: AppSettings, triggerPublicSync: Boolean = true): Result<Unit> {
+        val preservedId = if (PublicKasHelper.isValidPublicKasId(settings.publicKasId)) {
+            settings.publicKasId
+        } else {
+            _settingsFlow.value.publicKasId
+        }
+        val preservedSecret = if (PublicKasHelper.isValidWriteSecret(settings.writeSecret)) {
+            settings.writeSecret
+        } else {
+            _settingsFlow.value.writeSecret
+        }
+        val mergedSettings = settings.copy(
+            publicKasId = preservedId,
+            writeSecret = preservedSecret,
+            publicLastSyncedAt = maxOf(settings.publicLastSyncedAt, _settingsFlow.value.publicLastSyncedAt),
+            publicBaseUrl = settings.publicBaseUrl.ifBlank { AppSettings.DEFAULT_PUBLIC_BASE_URL }
+        )
+        saveSettingsLocal(mergedSettings)
+
+        if (triggerPublicSync) {
+            triggerAutoSyncIfEnabled()
+        }
+
+        // Asynchronously mirror to private Firestore if authenticated without blocking offline UI
+        val currentAuthUid = auth?.currentUser?.uid
+        if (!currentAuthUid.isNullOrBlank()) {
+            val path = "users/$currentAuthUid/settings/config"
+            val docRef = db.collection("users").document(currentAuthUid).collection("settings").document("config")
             val payload = mapOf(
-                "userId" to uid,
-                "groupName" to settings.groupName,
-                "adminName" to settings.adminName,
-                "initialBalance" to settings.initialBalance,
-                "currencyCode" to settings.currencyCode,
-                "language" to settings.language,
-                "themeMode" to settings.themeMode,
-                "logoUrl" to settings.logoUrl,
+                "userId" to currentAuthUid,
+                "groupName" to mergedSettings.groupName.ifBlank { "Kas Transparan" }.take(200),
+                "adminName" to mergedSettings.adminName.take(100),
+                "description" to mergedSettings.description.take(500),
+                "initialBalance" to mergedSettings.initialBalance,
+                "currencyCode" to mergedSettings.currencyCode.ifBlank { "IDR" }.take(5),
+                "language" to mergedSettings.language.ifBlank { "id" }.take(10),
+                "themeMode" to mergedSettings.themeMode,
+                "logoUrl" to mergedSettings.logoUrl.take(2000),
+                "publicKasId" to mergedSettings.publicKasId,
+                "writeSecret" to mergedSettings.writeSecret,
+                "publicAutoSync" to mergedSettings.publicAutoSync,
+                "publicLastSyncedAt" to mergedSettings.publicLastSyncedAt,
+                "publicBaseUrl" to mergedSettings.publicBaseUrl.take(500),
                 "updatedAt" to FieldValue.serverTimestamp()
             )
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     docRef.set(payload).await()
-                } catch (_: Exception) {}
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    handleFirestoreError(e, OperationType.WRITE, path)
+                }
             }
-        } catch (_: Exception) {}
+        }
 
         return Result.success(Unit)
     }
@@ -394,7 +693,7 @@ class KasRepository(
     suspend fun addTransaction(transaction: Transaction): Result<String> {
         val uid = requireUserId()
         val docId = if (transaction.id.isNotBlank()) transaction.id else UUID.randomUUID().toString()
-        val timestampNow = transaction.createdAt ?: com.google.firebase.Timestamp.now()
+        val timestampNow = transaction.createdAt ?: Timestamp.now()
         val newTx = transaction.copy(
             id = docId,
             userId = uid,
@@ -409,6 +708,7 @@ class KasRepository(
                 .thenByDescending { it.createdAt?.toDate()?.time ?: 0L }
         )
         saveTransactionsLocal(sortedList)
+        triggerAutoSyncIfEnabled()
 
         // Record audit log
         addAuditLog(
@@ -418,45 +718,50 @@ class KasRepository(
             reason = "Pencatatan kas baru"
         )
 
-        // Mirror to Firestore in background
-        if (auth?.currentUser != null) {
-            try {
-                val docRef = db.collection("users").document(uid).collection("transactions").document(docId)
-                val payload = mutableMapOf<String, Any>(
-                    "userId" to uid,
-                    "type" to transaction.type,
-                    "title" to transaction.title,
-                    "amount" to transaction.amount,
-                    "category" to transaction.category,
-                    "date" to transaction.date,
-                    "status" to "ACTIVE",
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-                if (transaction.description.isNotBlank()) payload["description"] = transaction.description
-                if (transaction.paymentMethod.isNotBlank()) payload["paymentMethod"] = transaction.paymentMethod
-                if (transaction.receiptUrl.isNotBlank()) payload["receiptUrl"] = transaction.receiptUrl
-                if (transaction.voidReason.isNotBlank()) payload["voidReason"] = transaction.voidReason
+        // Mirror to private Firestore in background if signed in
+        val authUid = auth?.currentUser?.uid
+        if (!authUid.isNullOrBlank()) {
+            val path = "users/$authUid/transactions/$docId"
+            val docRef = db.collection("users").document(authUid).collection("transactions").document(docId)
+            val payload = mutableMapOf<String, Any>(
+                "userId" to authUid,
+                "type" to transaction.type,
+                "title" to transaction.title.take(200),
+                "amount" to transaction.amount.coerceAtLeast(0L),
+                "category" to transaction.category.ifBlank { "Umum" }.take(100),
+                "date" to transaction.date,
+                "status" to "ACTIVE",
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            if (transaction.description.isNotBlank()) payload["description"] = transaction.description.take(1000)
+            if (transaction.paymentMethod.isNotBlank()) payload["paymentMethod"] = transaction.paymentMethod.take(100)
+            if (transaction.receiptUrl.isNotBlank()) payload["receiptUrl"] = transaction.receiptUrl.take(2000)
+            if (transaction.voidReason.isNotBlank()) payload["voidReason"] = transaction.voidReason.take(500)
 
-                CoroutineScope(Dispatchers.IO).launch {
-                    try {
-                        docRef.set(payload).await()
-                    } catch (_: Exception) {}
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    docRef.set(payload).await()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    handleFirestoreError(e, OperationType.CREATE, path)
                 }
-            } catch (_: Exception) {}
+            }
         }
 
         return Result.success(docId)
     }
 
     suspend fun updateTransaction(transaction: Transaction, reason: String): Result<Unit> {
-        val uid = requireUserId()
         val currentList = _transactionsFlow.value.toMutableList()
         val index = currentList.indexOfFirst { it.id == transaction.id }
         if (index != -1) {
             currentList[index] = transaction
             saveTransactionsLocal(currentList)
         }
+        triggerAutoSyncIfEnabled()
+
         addAuditLog(
             transactionId = transaction.id,
             action = "UPDATE",
@@ -464,20 +769,35 @@ class KasRepository(
             reason = reason.ifBlank { "Koreksi data oleh admin" }
         )
 
-        try {
-            val docRef = db.collection("users").document(uid).collection("transactions").document(transaction.id)
+        val authUid = auth?.currentUser?.uid
+        if (!authUid.isNullOrBlank()) {
+            val path = "users/$authUid/transactions/${transaction.id}"
+            val docRef = db.collection("users").document(authUid).collection("transactions").document(transaction.id)
+            val updates = mapOf(
+                "type" to transaction.type,
+                "title" to transaction.title.take(200),
+                "amount" to transaction.amount.coerceAtLeast(0L),
+                "category" to transaction.category.ifBlank { "Umum" }.take(100),
+                "date" to transaction.date,
+                "description" to transaction.description.take(1000),
+                "paymentMethod" to transaction.paymentMethod.take(100),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    docRef.set(transaction).await()
-                } catch (_: Exception) {}
+                    docRef.update(updates).await()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    handleFirestoreError(e, OperationType.UPDATE, path)
+                }
             }
-        } catch (_: Exception) {}
+        }
 
         return Result.success(Unit)
     }
 
     suspend fun voidTransaction(transaction: Transaction, reason: String): Result<Unit> {
-        val uid = requireUserId()
         val currentList = _transactionsFlow.value.toMutableList()
         val index = currentList.indexOfFirst { it.id == transaction.id }
         if (index != -1) {
@@ -487,6 +807,8 @@ class KasRepository(
             )
             saveTransactionsLocal(currentList)
         }
+        triggerAutoSyncIfEnabled()
+
         addAuditLog(
             transactionId = transaction.id,
             action = "VOID",
@@ -494,23 +816,35 @@ class KasRepository(
             reason = reason.ifBlank { "Dibatalkan oleh admin" }
         )
 
-        try {
-            val docRef = db.collection("users").document(uid).collection("transactions").document(transaction.id)
+        val authUid = auth?.currentUser?.uid
+        if (!authUid.isNullOrBlank()) {
+            val path = "users/$authUid/transactions/${transaction.id}"
+            val docRef = db.collection("users").document(authUid).collection("transactions").document(transaction.id)
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    docRef.update(mapOf("status" to "VOID", "voidReason" to reason)).await()
-                } catch (_: Exception) {}
+                    docRef.update(
+                        mapOf(
+                            "status" to "VOID",
+                            "voidReason" to reason.take(500),
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        )
+                    ).await()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    handleFirestoreError(e, OperationType.UPDATE, path)
+                }
             }
-        } catch (_: Exception) {}
+        }
 
         return Result.success(Unit)
     }
 
     suspend fun deleteTransaction(transactionId: String): Result<Unit> {
-        val uid = requireUserId()
         val currentList = _transactionsFlow.value.toMutableList()
         currentList.removeAll { it.id == transactionId }
         saveTransactionsLocal(currentList)
+        triggerAutoSyncIfEnabled()
 
         addAuditLog(
             transactionId = transactionId,
@@ -519,14 +853,20 @@ class KasRepository(
             reason = "Penghapusan oleh admin"
         )
 
-        try {
-            val docRef = db.collection("users").document(uid).collection("transactions").document(transactionId)
+        val authUid = auth?.currentUser?.uid
+        if (!authUid.isNullOrBlank()) {
+            val path = "users/$authUid/transactions/$transactionId"
+            val docRef = db.collection("users").document(authUid).collection("transactions").document(transactionId)
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     docRef.delete().await()
-                } catch (_: Exception) {}
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    handleFirestoreError(e, OperationType.DELETE, path)
+                }
             }
-        } catch (_: Exception) {}
+        }
 
         return Result.success(Unit)
     }
@@ -551,28 +891,34 @@ class KasRepository(
         currentLogs.add(0, newLog)
         saveAuditLogsLocal(currentLogs)
 
-        try {
-            val logRef = db.collection("users").document(uid).collection("audit_logs").document(logId)
+        val authUid = auth?.currentUser?.uid
+        if (!authUid.isNullOrBlank()) {
+            val path = "users/$authUid/audit_logs/$logId"
+            val logRef = db.collection("users").document(authUid).collection("audit_logs").document(logId)
             val logData = mapOf(
-                "userId" to uid,
-                "transactionId" to transactionId,
+                "userId" to authUid,
+                "transactionId" to transactionId.take(128),
                 "action" to action,
-                "details" to details,
-                "reason" to reason,
+                "details" to details.take(2000),
+                "reason" to reason.take(500),
                 "createdAt" to FieldValue.serverTimestamp()
             )
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     logRef.set(logData).await()
-                } catch (_: Exception) {}
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    handleFirestoreError(e, OperationType.CREATE, path)
+                }
             }
-        } catch (_: Exception) {}
+        }
     }
 
     fun exportBackupJson(): String {
         val root = JSONObject()
         root.put("app", "Kas Transparan")
-        root.put("version", 1)
+        root.put("version", 2)
         root.put("timestamp", System.currentTimeMillis())
 
         val s = _settingsFlow.value
@@ -580,11 +926,17 @@ class KasRepository(
             put("userId", s.userId)
             put("groupName", s.groupName)
             put("adminName", s.adminName)
+            put("description", s.description)
             put("initialBalance", s.initialBalance)
             put("currencyCode", s.currencyCode)
             put("language", s.language)
             put("themeMode", s.themeMode)
             put("logoUrl", s.logoUrl)
+            put("publicKasId", s.publicKasId)
+            put("writeSecret", s.writeSecret)
+            put("publicAutoSync", s.publicAutoSync)
+            put("publicLastSyncedAt", s.publicLastSyncedAt)
+            put("publicBaseUrl", s.publicBaseUrl)
         }
         root.put("settings", settingsObj)
 
@@ -646,15 +998,26 @@ class KasRepository(
 
             if (root.has("settings")) {
                 val sObj = root.getJSONObject("settings")
+                val existingPublicId = _settingsFlow.value.publicKasId
+                val existingWriteSecret = _settingsFlow.value.writeSecret
+                val backupPublicId = sObj.optString("publicKasId", "")
+                val backupWriteSecret = sObj.optString("writeSecret", "")
                 val restoredSettings = AppSettings(
                     userId = sObj.optString("userId", "admin_local"),
                     groupName = sObj.optString("groupName", "Kelompok Kas"),
                     adminName = sObj.optString("adminName", "Admin Kas"),
+                    description = sObj.optString("description", ""),
                     initialBalance = sObj.optLong("initialBalance", 0L),
                     currencyCode = sObj.optString("currencyCode", "IDR"),
                     language = sObj.optString("language", "id"),
                     themeMode = sObj.optString("themeMode", "LIGHT"),
-                    logoUrl = sObj.optString("logoUrl", "")
+                    logoUrl = sObj.optString("logoUrl", ""),
+                    publicKasId = if (PublicKasHelper.isValidPublicKasId(backupPublicId)) backupPublicId else existingPublicId,
+                    writeSecret = if (PublicKasHelper.isValidWriteSecret(backupWriteSecret)) backupWriteSecret else existingWriteSecret,
+                    publicAutoSync = sObj.optBoolean("publicAutoSync", false),
+                    publicLastSyncedAt = sObj.optLong("publicLastSyncedAt", 0L),
+                    publicBaseUrl = sObj.optString("publicBaseUrl", AppSettings.DEFAULT_PUBLIC_BASE_URL)
+                        .ifBlank { AppSettings.DEFAULT_PUBLIC_BASE_URL }
                 )
                 saveSettingsLocal(restoredSettings)
             }

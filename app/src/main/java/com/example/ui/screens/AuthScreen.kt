@@ -18,10 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -29,6 +26,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -61,8 +59,10 @@ import com.google.firebase.Firebase
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 
 @Composable
 fun AuthScreen(
@@ -73,9 +73,6 @@ fun AuthScreen(
     val credentialManager = remember { CredentialManager.create(context) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var isPasswordVisible by remember { mutableStateOf(false) }
     val isLight = MaterialTheme.colorScheme.background == com.example.ui.theme.AppBackgroundLight
 
     Box(
@@ -104,7 +101,6 @@ fun AuthScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                // Custom App Logo
                 Image(
                     painter = painterResource(id = R.drawable.app_custom_logo),
                     contentDescription = "Kas Transparan Logo",
@@ -122,7 +118,7 @@ fun AuthScreen(
                         letterSpacing = 0.5.sp,
                         fontSize = 24.sp
                     ),
-                    color = if (isLight) Color(0xFF1B5E20) else MaterialTheme.colorScheme.primary
+                    color = if (isLight) Color(0xFF01579B) else MaterialTheme.colorScheme.primary
                 )
 
                 Text(
@@ -136,70 +132,17 @@ fun AuthScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                // Email & Password Admin Form
-                androidx.compose.material3.OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = { Text("Email Admin") },
-                    placeholder = { Text("admin@example.com") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Default.Email,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    singleLine = true,
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Email,
-                        imeAction = androidx.compose.ui.text.input.ImeAction.Next
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("input_admin_email"),
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                androidx.compose.material3.OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("Kata Sandi") },
-                    placeholder = { Text("Masukkan kata sandi") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Default.Lock,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    trailingIcon = {
-                        androidx.compose.material3.IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
-                            Icon(
-                                imageVector = if (isPasswordVisible) androidx.compose.material.icons.Icons.Default.Visibility
-                                else androidx.compose.material.icons.Icons.Default.VisibilityOff,
-                                contentDescription = if (isPasswordVisible) "Sembunyikan kata sandi" else "Tampilkan kata sandi"
-                            )
-                        }
-                    },
-                    visualTransformation = if (isPasswordVisible) androidx.compose.ui.text.input.VisualTransformation.None
-                    else androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                    singleLine = true,
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
-                        imeAction = androidx.compose.ui.text.input.ImeAction.Done
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("input_admin_password"),
-                    shape = RoundedCornerShape(12.dp)
+                Text(
+                    text = "Masuk dengan Akun Google Bendahara untuk menyinkronkan Laporan Publik Online (1 Link), atau lanjutkan dalam Mode Offline Lokal.",
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 if (errorMessage != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                     Text(
                         text = errorMessage ?: "",
                         style = MaterialTheme.typography.bodySmall,
@@ -209,81 +152,9 @@ fun AuthScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
-                // Primary Login Button (Email & Password)
-                Button(
-                    onClick = {
-                        val trimmedEmail = email.trim()
-                        if (trimmedEmail.isBlank()) {
-                            errorMessage = "Silakan masukkan email admin"
-                            return@Button
-                        }
-                        isLoading = true
-                        errorMessage = null
-                        coroutineScope.launch {
-                            try {
-                                val trimmedPassword = password.trim().ifBlank { "AdminKas2026!" }
-                                try {
-                                    Firebase.auth.signInWithEmailAndPassword(trimmedEmail, trimmedPassword).await()
-                                } catch (e: Exception) {
-                                    try {
-                                        Firebase.auth.createUserWithEmailAndPassword(trimmedEmail, trimmedPassword).await()
-                                    } catch (e2: Exception) {
-                                        Log.w("AuthScreen", "Firebase email auth unavailable: ${e.message}; logging in as local admin", e)
-                                    }
-                                }
-                                val repo = com.example.data.repository.KasRepository.getInstance(context)
-                                val currentSettings = repo.loadSettingsLocal()
-                                val adminDisplayName = trimmedEmail.substringBefore("@")
-                                repo.saveSettings(currentSettings.copy(adminName = if (currentSettings.adminName.isBlank() || currentSettings.adminName == "Admin Kas") adminDisplayName else currentSettings.adminName))
-                                isLoading = false
-                                onAuthSuccess()
-                            } catch (e: Exception) {
-                                Log.e("AuthScreen", "Unexpected login error", e)
-                                isLoading = false
-                                onAuthSuccess()
-                            }
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(50.dp)
-                        .testTag("email_sign_in_button"),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
-                    ),
-                    enabled = !isLoading
-                ) {
-                    if (isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onPrimary
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Masuk Sebagai Admin",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
-                            ),
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Google Sign In Button
+                // Interactive Google Sign-In Button (Credential Manager + GetSignInWithGoogleOption)
                 Button(
                     onClick = {
                         isLoading = true
@@ -307,37 +178,53 @@ fun AuthScreen(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(50.dp)
                         .testTag("google_sign_in_button"),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondary
+                        containerColor = MaterialTheme.colorScheme.primary
                     ),
                     enabled = !isLoading
                 ) {
-                    Text(
-                        text = "Masuk dengan Akun Google",
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp
-                        ),
-                        color = MaterialTheme.colorScheme.onSecondary
-                    )
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.CloudDone,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Masuk dengan Akun Google",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // Direct Mode button
-                androidx.compose.material3.OutlinedButton(
+                // Direct Offline-First Mode button
+                OutlinedButton(
                     onClick = onAuthSuccess,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(46.dp)
+                        .height(48.dp)
                         .testTag("direct_access_button"),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = !isLoading
                 ) {
                     Text(
-                        text = "Buka Langsung (Mode Mandiri / Offline)",
+                        text = "Buka Langsung (Mode Offline Lokal)",
                         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -355,29 +242,20 @@ fun onGoogleSignInClicked(
     scope: CoroutineScope,
     onAuthCancelled: () -> Unit = {}
 ) {
-    val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
-    val clientId = if (resId != 0) {
-        try {
-            context.getString(resId)
-        } catch (e: Exception) {
-            null
-        }
-    } else {
-        null
-    }
-
-    if (clientId.isNullOrBlank()) {
-        // Fallback to direct access so app is immediately usable without cloud configuration blockers
-        onAuthSuccess()
-        return
-    }
-
+    val clientId = context.getString(R.string.default_web_client_id)
     val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId).build()
-    val request = GetCredentialRequest.Builder().addCredentialOption(signInOption).build()
+    val request = GetCredentialRequest.Builder()
+        .addCredentialOption(signInOption)
+        .build()
 
     scope.launch {
         try {
-            val result = credentialManager.getCredential(context as Activity, request)
+            val activity = context as? Activity
+            if (activity == null) {
+                onAuthError("Konteks aktivitas tidak tersedia untuk Google Sign-In")
+                return@launch
+            }
+            val result = credentialManager.getCredential(activity, request)
             val credential = result.credential
             if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
@@ -385,14 +263,14 @@ fun onGoogleSignInClicked(
                 Firebase.auth.signInWithCredential(authCredential).await()
                 onAuthSuccess()
             } else {
-                onAuthError("Tipe kredensial tidak sesuai")
+                onAuthError("Tipe kredensial Google tidak sesuai")
             }
         } catch (e: GetCredentialCancellationException) {
             Log.w("Auth", "Google Sign-In flow cancelled or dismissed: ${e.message}", e)
             onAuthCancelled()
         } catch (e: Exception) {
             Log.e("Auth", "Google Sign-In failed", e)
-            onAuthError(e.localizedMessage ?: "Gagal masuk")
+            onAuthError(e.localizedMessage ?: "Gagal masuk dengan Akun Google")
         }
     }
 }
@@ -403,16 +281,19 @@ fun signOutAdmin(
     onSignOutComplete: () -> Unit,
     scope: CoroutineScope
 ) {
-    try {
-        Firebase.auth.signOut()
-    } catch (_: Exception) {}
     scope.launch {
-        try {
-            credentialManager.clearCredentialState(ClearCredentialStateRequest())
-        } catch (e: Exception) {
-            Log.e("Auth", "Failed to clear credential state", e)
-        } finally {
-            onSignOutComplete()
+        withContext(NonCancellable) {
+            try {
+                Firebase.auth.signOut()
+            } catch (e: Exception) {
+                Log.w("Auth", "Firebase signOut error", e)
+            }
+            try {
+                credentialManager.clearCredentialState(ClearCredentialStateRequest())
+            } catch (e: Exception) {
+                Log.e("Auth", "Failed to clear credential state", e)
+            }
         }
+        onSignOutComplete()
     }
 }

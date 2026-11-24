@@ -17,25 +17,31 @@
         "receiptUrl": { "type": "string", "description": "Receipt image URL or local storage path" },
         "status": { "type": "string", "enum": ["ACTIVE", "VOID"], "description": "Status of transaction" },
         "voidReason": { "type": "string", "description": "Reason given if transaction was voided" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp via serverTimestamp" },
-        "updatedAt": { "type": "string", "format": "date-time", "description": "Update timestamp via serverTimestamp" }
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp via FieldValue.serverTimestamp()" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Update timestamp via FieldValue.serverTimestamp()" }
       },
       "required": ["userId", "type", "title", "amount", "category", "date", "status", "createdAt"]
     },
     "Settings": {
       "title": "Settings",
-      "description": "Cashbook configuration profile, currency, language, and initial balance",
+      "description": "Cashbook configuration profile, currency, language, initial balance, and public transparency preferences",
       "type": "object",
       "properties": {
         "userId": { "type": "string", "description": "Admin UID" },
         "groupName": { "type": "string", "description": "Group or organization name" },
         "adminName": { "type": "string", "description": "Admin display name" },
+        "description": { "type": "string", "description": "Short group description or secretariat address" },
         "initialBalance": { "type": "integer", "description": "Opening cash balance" },
         "currencyCode": { "type": "string", "description": "ISO 4217 currency code" },
-        "language": { "type": "string", "description": "Selected language code (id or en)" },
+        "language": { "type": "string", "description": "Selected language code" },
         "themeMode": { "type": "string", "description": "SYSTEM, LIGHT, or DARK theme" },
         "logoUrl": { "type": "string", "description": "Optional group logo URL" },
-        "updatedAt": { "type": "string", "format": "date-time", "description": "Last settings update timestamp" }
+        "publicKasId": { "type": "string", "description": "Auto-generated unique public cash report ID (e.g. KAS-8A49B2X7)" },
+        "writeSecret": { "type": "string", "description": "Locally stored 24-character group write protection token (never shown in public URL or viewer)" },
+        "publicAutoSync": { "type": "boolean", "description": "Whether to auto-sync changes to public_kas when online" },
+        "publicLastSyncedAt": { "type": "integer", "description": "Epoch millis of last successful public report publish" },
+        "publicBaseUrl": { "type": "string", "description": "Base web URL for public read-only link" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last settings update timestamp via FieldValue.serverTimestamp()" }
       },
       "required": ["userId", "groupName", "initialBalance", "currencyCode", "language"]
     },
@@ -50,9 +56,28 @@
         "action": { "type": "string", "enum": ["CREATE", "UPDATE", "VOID"], "description": "Action performed" },
         "details": { "type": "string", "description": "Summary of changes made" },
         "reason": { "type": "string", "description": "Reason for change or cancellation" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Log creation timestamp" }
+        "createdAt": { "type": "string", "format": "date-time", "description": "Log creation timestamp via FieldValue.serverTimestamp()" }
       },
       "required": ["userId", "transactionId", "action", "details", "createdAt"]
+    },
+    "PublicKasReport": {
+      "title": "PublicKasReport",
+      "description": "Public read-only snapshot of a group's cash summary and transaction history for real-time citizen viewing via a single link, protected on updates by a 24-character group writeSecret",
+      "type": "object",
+      "properties": {
+        "writeSecret": { "type": "string", "description": "Immutable 24-character secret token generated locally on treasurer device to authorize updates without requiring login" },
+        "ownerUid": { "type": "string", "description": "Optional treasurer identifier (may be empty when syncing without login)" },
+        "groupName": { "type": "string", "description": "Group / RT / organization display name (max 120 chars)" },
+        "description": { "type": "string", "description": "Short description or secretariat address" },
+        "currencyCode": { "type": "string", "description": "ISO 4217 currency code for formatting" },
+        "initialBalance": { "type": "integer", "description": "Opening balance included in totalBalance" },
+        "totalBalance": { "type": "integer", "description": "Current total cash balance" },
+        "totalIncome": { "type": "integer", "description": "Total income across active transactions" },
+        "totalExpense": { "type": "integer", "description": "Total expense across active transactions" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last published timestamp via FieldValue.serverTimestamp()" },
+        "transactions": { "type": "array", "description": "Newest-first array of up to 2000 public transactions containing id, title, category, type ('income'|'expense'), amount, date, notes" }
+      },
+      "required": ["writeSecret", "groupName", "totalBalance", "totalIncome", "totalExpense", "updatedAt", "transactions"]
     }
   },
   "firestore": {
@@ -67,6 +92,10 @@
     "/users/{userId}/audit_logs/{logId}": {
       "schema": { "$ref": "#/entities/AuditLog" },
       "description": "Audit trail records for transaction changes and cancellations"
+    },
+    "/public_kas/{publicKasId}": {
+      "schema": { "$ref": "#/entities/PublicKasReport" },
+      "description": "Public read-only real-time cash report accessible by exact KAS-XXXXXXXX ID without login; updates protected by immutable writeSecret"
     }
   }
 }

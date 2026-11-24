@@ -67,7 +67,9 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.model.Transaction
 import com.example.ui.KasUiState
+import com.example.ui.KasViewModel
 import com.example.ui.PeriodFilter
+import com.example.ui.components.PublicTransparencyCard
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
 import com.example.ui.theme.SoftSkyBlueGradient
@@ -77,12 +79,14 @@ import com.example.util.LanguageHelper
 @Composable
 fun DashboardScreen(
     state: KasUiState,
+    viewModel: KasViewModel,
     onPeriodSelected: (PeriodFilter) -> Unit,
     onNavigateToIncome: () -> Unit,
     onNavigateToExpense: () -> Unit,
     onNavigateToHistory: () -> Unit,
     onAddInitialBalance: ((Long, String) -> Unit)? = null,
-    onSetInitialBalance: ((Long, String) -> Unit)? = null
+    onSetInitialBalance: ((Long, String) -> Unit)? = null,
+    onOpenPublicPreview: (String) -> Unit = {}
 ) {
     val lang = state.settings.language
     val curr = state.settings.currencyCode
@@ -558,6 +562,15 @@ fun DashboardScreen(
                         )
                     }
                 }
+            }
+
+            // Online Public Report (1-Link Read-Only Transparency Card)
+            item {
+                PublicTransparencyCard(
+                    state = state,
+                    viewModel = viewModel,
+                    onOpenPublicPreview = onOpenPublicPreview
+                )
             }
 
             // Recent Transactions Header

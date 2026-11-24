@@ -4,8 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.AppSettings
 import com.example.data.model.AuditLog
+import com.example.data.model.PublicAuthRequiredException
+import com.example.data.model.PublicKasUiState
 import com.example.data.model.Transaction
 import com.example.data.repository.KasRepository
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -16,7 +19,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
-import java.util.Date
 import java.util.Locale
 
 enum class PeriodFilter {
@@ -34,6 +36,8 @@ data class KasUiState(
     val filterType: String = "ALL", // "ALL", "INCOME", "EXPENSE", "VOID"
     val filterCategory: String = "ALL",
     val isLoading: Boolean = false,
+    val isPublishingPublic: Boolean = false,
+    val linkedTreasurerEmail: String? = null,
     val errorMessage: String? = null,
     val userFeedbackMessage: String? = null
 )
@@ -51,6 +55,8 @@ class KasViewModel(
     private val _filterCategory = MutableStateFlow("ALL")
     private val _feedbackMessage = MutableStateFlow<String?>(null)
     private val _isLoading = MutableStateFlow(false)
+    private val _isPublishingPublic = MutableStateFlow(false)
+    private val _linkedTreasurerEmail = MutableStateFlow(repository.getSignedInTreasurerEmail())
 
     val transactions: StateFlow<List<Transaction>> = repository.observeTransactions(userId)
         .catch { emit(emptyList()) }
@@ -67,6 +73,8 @@ class KasViewModel(
         .catch { emit(emptyList()) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val isPublishingPublic: StateFlow<Boolean> = _isPublishingPublic.asStateFlow()
+
     val uiState: StateFlow<KasUiState> = combine(
         transactions,
         settings,
@@ -76,10 +84,14 @@ class KasViewModel(
         _filterType,
         _filterCategory,
         _feedbackMessage,
-        _isLoading
+        _isLoading,
+        _isPublishingPublic,
+        _linkedTreasurerEmail
     ) { args: Array<Any?> ->
+        @Suppress("UNCHECKED_CAST")
         val txs = args[0] as List<Transaction>
         val currentSettings = args[1] as AppSettings
+        @Suppress("UNCHECKED_CAST")
         val logs = args[2] as List<AuditLog>
         val period = args[3] as PeriodFilter
         val query = args[4] as String
@@ -87,6 +99,8 @@ class KasViewModel(
         val category = args[6] as String
         val feedback = args[7] as String?
         val loading = args[8] as Boolean
+        val publishingPublic = args[9] as Boolean
+        val linkedEmail = args[10] as String?
 
         KasUiState(
             transactions = txs,
@@ -99,9 +113,55 @@ class KasViewModel(
             filterType = type,
             filterCategory = category,
             isLoading = loading,
+            isPublishingPublic = publishingPublic,
+            linkedTreasurerEmail = linkedEmail,
             userFeedbackMessage = feedback
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), KasUiState())
+
+    fun refreshAuthStatus() {
+        _linkedTreasurerEmail.value = repository.getSignedInTreasurerEmail()
+    }
+
+    fun showFeedback(message: String) {
+        _feedbackMessage.value = message
+    }
+
+    fun publishPublicReport(
+        onComplete: (Result<Long>) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            _isPublishingPublic.value = true
+            val result = repository.publishPublicKasReport()
+            _isPublishingPublic.value = false
+            if (result.isSuccess) {
+                _feedbackMessage.value = "Laporan publik berhasil diperbarui!"
+            } else {
+                val ex = result.exceptionOrNull()
+                _feedbackMessage.value = ex?.localizedMessage ?: "Gagal menyinkronkan laporan ke Web."
+            }
+            onComplete(result)
+        }
+    }
+
+    fun setPublicAutoSync(enabled: Boolean) {
+        viewModelScope.launch {
+            val updated = settings.value.copy(publicAutoSync = enabled)
+            repository.saveSettings(updated, triggerPublicSync = false)
+            _feedbackMessage.value = if (enabled) {
+                "Sinkronisasi otomatis saat online diaktifkan!"
+            } else {
+                "Sinkronisasi otomatis dinonaktifkan."
+            }
+            if (enabled) {
+                publishPublicReport()
+            }
+        }
+    }
+
+    fun observePublicKasReport(publicKasId: String): Flow<PublicKasUiState> {
+        return repository.observePublicKasReport(publicKasId)
+    }
 
     fun setPeriodFilter(filter: PeriodFilter, start: String = "", end: String = "") {
         _selectedPeriod.value = filter
@@ -273,7 +333,6 @@ class KasViewModel(
         }
     }
 
-    // Calculations based on filtered transactions
     fun getFilteredTransactions(
         list: List<Transaction>,
         period: PeriodFilter,
