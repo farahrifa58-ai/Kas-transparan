@@ -6,6 +6,8 @@ import android.util.Log
 import com.example.R
 import com.example.data.model.AppSettings
 import com.example.data.model.AuditLog
+import com.example.data.model.ExcelColumnMode
+import com.example.data.model.ExportPreferences
 import com.example.data.model.PublicAuthRequiredException
 import com.example.data.model.PublicKasHelper
 import com.example.data.model.PublicKasReport
@@ -74,6 +76,7 @@ class KasRepository(
         private val _sharedSettingsFlow = MutableStateFlow<AppSettings?>(null)
         private val _sharedTransactionsFlow = MutableStateFlow<List<Transaction>?>(null)
         private val _sharedAuditLogsFlow = MutableStateFlow<List<AuditLog>?>(null)
+        private val _sharedExportPrefsFlow = MutableStateFlow<ExportPreferences?>(null)
 
         fun getInstance(context: Context): KasRepository {
             return instance ?: synchronized(this) {
@@ -119,6 +122,15 @@ class KasRepository(
             }
             @Suppress("UNCHECKED_CAST")
             return _sharedAuditLogsFlow as MutableStateFlow<List<AuditLog>>
+        }
+
+    private val _exportPrefsFlow: MutableStateFlow<ExportPreferences>
+        get() {
+            if (_sharedExportPrefsFlow.value == null) {
+                _sharedExportPrefsFlow.value = loadExportPreferencesLocal()
+            }
+            @Suppress("UNCHECKED_CAST")
+            return _sharedExportPrefsFlow as MutableStateFlow<ExportPreferences>
         }
 
     fun loadSettingsLocal(): AppSettings {
@@ -316,6 +328,51 @@ class KasRepository(
         } catch (e: Exception) {
             Log.e("KasRepository", "Error saving audit logs locally", e)
         }
+    }
+
+    fun loadExportPreferencesLocal(): ExportPreferences {
+        val jsonStr = prefs?.getString("export_customization_prefs", null) ?: return ExportPreferences()
+        return try {
+            val obj = JSONObject(jsonStr)
+            ExportPreferences(
+                showShareImage = obj.optBoolean("showShareImage", true),
+                showSharePdf = obj.optBoolean("showSharePdf", true),
+                showShareExcel = obj.optBoolean("showShareExcel", true),
+                excelColumnMode = ExcelColumnMode.fromKey(obj.optString("excelColumnMode", "COMPLETE")),
+                showShareDoc = obj.optBoolean("showShareDoc", true)
+            ).ensureAtLeastOneActive()
+        } catch (_: Exception) {
+            ExportPreferences()
+        }
+    }
+
+    private fun saveExportPreferencesLocal(exportPrefs: ExportPreferences) {
+        try {
+            val safePrefs = exportPrefs.ensureAtLeastOneActive()
+            val obj = JSONObject().apply {
+                put("showShareImage", safePrefs.showShareImage)
+                put("showSharePdf", safePrefs.showSharePdf)
+                put("showShareExcel", safePrefs.showShareExcel)
+                put("excelColumnMode", safePrefs.excelColumnMode.key)
+                put("showShareDoc", safePrefs.showShareDoc)
+            }
+            prefs?.edit()?.putString("export_customization_prefs", obj.toString())?.apply()
+            _sharedExportPrefsFlow.value = safePrefs
+        } catch (e: Exception) {
+            Log.e("KasRepository", "Error saving export preferences locally", e)
+        }
+    }
+
+    fun observeExportPreferences(): Flow<ExportPreferences> {
+        return _exportPrefsFlow.asStateFlow()
+    }
+
+    fun saveExportPreferences(newPrefs: ExportPreferences): Result<Unit> {
+        if (newPrefs.activeCount == 0) {
+            return Result.failure(IllegalArgumentException("Minimal 1 opsi ekspor harus tetap aktif"))
+        }
+        saveExportPreferencesLocal(newPrefs)
+        return Result.success(Unit)
     }
 
     @Volatile
@@ -978,6 +1035,16 @@ class KasRepository(
         }
         root.put("auditLogs", auditArray)
 
+        val ep = _exportPrefsFlow.value
+        val exportPrefsObj = JSONObject().apply {
+            put("showShareImage", ep.showShareImage)
+            put("showSharePdf", ep.showSharePdf)
+            put("showShareExcel", ep.showShareExcel)
+            put("excelColumnMode", ep.excelColumnMode.key)
+            put("showShareDoc", ep.showShareDoc)
+        }
+        root.put("exportPreferences", exportPrefsObj)
+
         return root.toString(2)
     }
 
@@ -1072,6 +1139,18 @@ class KasRepository(
                     )
                 }
                 saveAuditLogsLocal(list)
+            }
+
+            if (root.has("exportPreferences")) {
+                val epObj = root.getJSONObject("exportPreferences")
+                val restoredExportPrefs = ExportPreferences(
+                    showShareImage = epObj.optBoolean("showShareImage", true),
+                    showSharePdf = epObj.optBoolean("showSharePdf", true),
+                    showShareExcel = epObj.optBoolean("showShareExcel", true),
+                    excelColumnMode = ExcelColumnMode.fromKey(epObj.optString("excelColumnMode", "COMPLETE")),
+                    showShareDoc = epObj.optBoolean("showShareDoc", true)
+                ).ensureAtLeastOneActive()
+                saveExportPreferencesLocal(restoredExportPrefs)
             }
 
             Result.success(restoredCount)

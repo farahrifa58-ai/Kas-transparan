@@ -1,7 +1,7 @@
 {
   "firestore": [
     {
-      "database": "ai-studio-android-kastrans-b4c11abb-2e43-4c68-a162-33b6cf65e42e",
+      "database": "ai-studio-android-kastrans-30de1cde-9f7c-4f04-bc8d-343221f138d0",
       "rules": "firestore.rules"
     }
   ],

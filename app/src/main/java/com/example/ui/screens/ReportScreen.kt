@@ -26,6 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -62,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.BorderStroke
+import com.example.data.model.ExportPreferences
 import com.example.ui.KasUiState
 import com.example.ui.KasViewModel
 import com.example.ui.components.PublicTransparencyCard
@@ -75,6 +77,8 @@ import com.example.ui.theme.SoftSuccessBg
 import com.example.ui.theme.SoftSuccessFg
 import com.example.ui.theme.isAppLightTheme
 import com.example.util.CurrencyHelper
+import com.example.util.DocExportResult
+import com.example.util.DocReportGenerator
 import com.example.util.ExcelExportResult
 import com.example.util.ExcelExporter
 import com.example.util.LanguageHelper
@@ -105,8 +109,10 @@ fun ReportScreen(
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var lastExcelResult by remember { mutableStateOf<ExcelExportResult?>(null) }
     var lastPdfResult by remember { mutableStateOf<PdfExportResult?>(null) }
+    var lastDocResult by remember { mutableStateOf<DocExportResult?>(null) }
     var showShareOptionsDialog by remember { mutableStateOf(false) }
     var showExportPrintDialog by remember { mutableStateOf(false) }
+    val exportPrefs = remember(state.exportPreferences) { state.exportPreferences.ensureAtLeastOneActive() }
 
     val sdf = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
     val displayDateSdf = remember(isEn) {
@@ -274,7 +280,15 @@ fun ReportScreen(
                         )
                     }
 
-                    // Single Consolidated Button: [Unduh PDF / Excel & Cetak ▾]
+                    // Single Consolidated Download & Print Button respecting active ExportPreferences
+                    val activeFormatNames = remember(exportPrefs, isEn) {
+                        buildList {
+                            if (exportPrefs.showSharePdf) add("PDF")
+                            if (exportPrefs.showShareExcel) add("Excel")
+                            if (exportPrefs.showShareDoc) add("DOC")
+                            if (exportPrefs.showShareImage) add(if (isEn) "Image" else "Gambar")
+                        }.joinToString(" / ")
+                    }
                     OutlinedButton(
                         onClick = { showExportPrintDialog = true },
                         modifier = Modifier
@@ -286,7 +300,11 @@ fun ReportScreen(
                         Icon(imageVector = Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (isEn) "Download PDF / Excel & Print Report ▾" else "Unduh PDF / Excel & Cetak Laporan ▾",
+                            text = if (isEn) {
+                                "Download $activeFormatNames${if (exportPrefs.showSharePdf) " & Print" else ""} ▾"
+                            } else {
+                                "Unduh $activeFormatNames${if (exportPrefs.showSharePdf) " & Cetak" else ""} ▾"
+                            },
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp
@@ -439,6 +457,71 @@ fun ReportScreen(
                 }
             }
 
+            // Notice Banner when Word (.doc) is saved directly to Download folder
+            if (lastDocResult != null && lastDocResult?.success == true) {
+                item {
+                    val docBg = if (isLight) Color(0xFFEFF6FF) else Color(0xFF172554)
+                    val docFg = if (isLight) Color(0xFF1D4ED8) else Color(0xFF93C5FD)
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("doc_download_success_card"),
+                        colors = CardDefaults.cardColors(containerColor = docBg),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, docFg.copy(alpha = 0.25f))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.DownloadDone,
+                                    contentDescription = null,
+                                    tint = docFg,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (isEn) "Word Document (.doc) Saved to Downloads" else "Dokumen Word (.doc) Berhasil Disimpan ke Download",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                    color = docFg
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = lastDocResult?.savedPathDisplay ?: "",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = docFg
+                            )
+                            Text(
+                                text = if (isEn) "Formatted Word document ready to open in Microsoft Word, WPS, or Google Docs."
+                                else "Dokumen Word (.doc) terstruktur rapi siap dibuka di Microsoft Word, WPS, atau Google Docs.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = {
+                                        lastDocResult?.let { res ->
+                                            DocReportGenerator.openOrShareDoc(context, res)
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1D4ED8)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = if (isEn) "Open / Share DOC" else "Buka / Bagikan DOC",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             if (statusMessage != null && (lastExcelResult == null || lastExcelResult?.success == false)) {
                 item {
                     Card(
@@ -578,9 +661,11 @@ fun ReportScreen(
             finalBalance = finalBalance,
             filteredTransactions = filteredTransactions,
             settings = state.settings,
+            exportPrefs = exportPrefs,
             onDismiss = { showShareOptionsDialog = false },
             onStatusMessage = { statusMessage = it },
-            onExcelExport = { lastExcelResult = it }
+            onExcelExport = { lastExcelResult = it },
+            onDocExport = { lastDocResult = it }
         )
     }
 
@@ -593,10 +678,12 @@ fun ReportScreen(
             finalBalance = finalBalance,
             filteredTransactions = filteredTransactions,
             settings = state.settings,
+            exportPrefs = exportPrefs,
             onDismiss = { showExportPrintDialog = false },
             onStatusMessage = { statusMessage = it },
             onPdfExport = { lastPdfResult = it },
-            onExcelExport = { lastExcelResult = it }
+            onExcelExport = { lastExcelResult = it },
+            onDocExport = { lastDocResult = it }
         )
     }
 }
@@ -610,9 +697,11 @@ fun ShareReportOptionsDialog(
     finalBalance: Long,
     filteredTransactions: List<com.example.data.model.Transaction>,
     settings: com.example.data.model.AppSettings,
+    exportPrefs: ExportPreferences = ExportPreferences(),
     onDismiss: () -> Unit,
     onStatusMessage: (String) -> Unit,
-    onExcelExport: (ExcelExportResult) -> Unit
+    onExcelExport: (ExcelExportResult) -> Unit,
+    onDocExport: (DocExportResult) -> Unit = {}
 ) {
     val context = LocalContext.current
     val lang = settings.language
@@ -665,6 +754,7 @@ fun ShareReportOptionsDialog(
                 )
 
                 // 1. WhatsApp Option (PDF + Teks Rangkuman)
+                if (exportPrefs.showSharePdf) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -736,8 +826,10 @@ fun ShareReportOptionsDialog(
                         }
                     }
                 }
+                }
 
                 // 2. Infographic Image Option (.png)
+                if (exportPrefs.showShareImage) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -808,8 +900,10 @@ fun ShareReportOptionsDialog(
                         }
                     }
                 }
+                }
 
                 // 3. Official PDF File Option (.pdf)
+                if (exportPrefs.showSharePdf) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -887,8 +981,10 @@ fun ShareReportOptionsDialog(
                         }
                     }
                 }
+                }
 
-                // 4. Excel CSV Spreadsheet Option
+                // 4. Excel (.xlsx) Spreadsheet Option
+                if (exportPrefs.showShareExcel) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -902,7 +998,9 @@ fun ShareReportOptionsDialog(
                                     initialBalance = initialBalance,
                                     totalIncome = totalIncome,
                                     totalExpense = totalExpense,
-                                    finalBalance = finalBalance
+                                    finalBalance = finalBalance,
+                                    format = "XLSX",
+                                    columnMode = exportPrefs.excelColumnMode
                                 )
                                 onExcelExport(result)
                                 ExcelExporter.openOrShareCsv(context, result)
@@ -949,6 +1047,73 @@ fun ShareReportOptionsDialog(
                         }
                     }
                 }
+                }
+
+                // 5. Word Document (.doc) Option
+                if (exportPrefs.showShareDoc) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            try {
+                                val result = DocReportGenerator.exportAndSaveToDownloads(
+                                    context = context,
+                                    settings = settings,
+                                    transactions = filteredTransactions,
+                                    periodTitle = periodTitle,
+                                    initialBalance = initialBalance,
+                                    totalIncome = totalIncome,
+                                    totalExpense = totalExpense,
+                                    finalBalance = finalBalance,
+                                    columnMode = exportPrefs.excelColumnMode
+                                )
+                                onDocExport(result)
+                                DocReportGenerator.openOrShareDoc(context, result)
+                                onDismiss()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        .testTag("btn_share_doc_direct"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF1D4ED8).copy(alpha = 0.16f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Description,
+                                contentDescription = null,
+                                tint = Color(0xFF1D4ED8),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (isEn) "Word Document (.doc)" else "Dokumen Word (.doc)",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = if (isEn) "Clean Excel-style table & running balance for Word / WPS"
+                                else "Dokumen Word bertabel rapi seperti Excel dengan saldo berjalan",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                }
             }
         },
         confirmButton = {
@@ -994,13 +1159,16 @@ fun ExportPrintOptionsDialog(
     finalBalance: Long,
     filteredTransactions: List<com.example.data.model.Transaction>,
     settings: com.example.data.model.AppSettings,
+    exportPrefs: ExportPreferences = ExportPreferences(),
     onDismiss: () -> Unit,
     onStatusMessage: (String) -> Unit,
     onPdfExport: (PdfExportResult) -> Unit,
-    onExcelExport: (ExcelExportResult) -> Unit
+    onExcelExport: (ExcelExportResult) -> Unit,
+    onDocExport: (DocExportResult) -> Unit = {}
 ) {
     val context = LocalContext.current
     val lang = settings.language
+    val curr = settings.currencyCode
     val isEn = lang.equals("en", ignoreCase = true)
 
     AlertDialog(
@@ -1050,6 +1218,7 @@ fun ExportPrintOptionsDialog(
                 )
 
                 // 1. Unduh PDF Option (Saved directly to phone's public Download folder)
+                if (exportPrefs.showSharePdf) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1108,8 +1277,10 @@ fun ExportPrintOptionsDialog(
                         }
                     }
                 }
+                }
 
-                // 2. Unduh Excel (.xls - SpreadsheetML) Option
+                // 2. Unduh Excel (.xlsx) & CSV Options
+                if (exportPrefs.showShareExcel) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1123,10 +1294,11 @@ fun ExportPrintOptionsDialog(
                                 totalIncome = totalIncome,
                                 totalExpense = totalExpense,
                                 finalBalance = finalBalance,
-                                format = "XLS"
+                                format = "XLSX",
+                                columnMode = exportPrefs.excelColumnMode
                             )
                             onExcelExport(result)
-                            val toastText = if (isEn) "Excel (.xls) saved to ${result.savedPathDisplay}" else "Excel (.xls) disimpan di ${result.savedPathDisplay}"
+                            val toastText = if (isEn) "Excel (.xlsx) saved to ${result.savedPathDisplay}" else "Excel (.xlsx) disimpan di ${result.savedPathDisplay}"
                             Toast.makeText(context, toastText, Toast.LENGTH_LONG).show()
                             onStatusMessage("${LanguageHelper.getString("excel_saved_download", lang)} ${result.savedPathDisplay}")
                             onDismiss()
@@ -1170,7 +1342,6 @@ fun ExportPrintOptionsDialog(
                     }
                 }
 
-                // 3. Unduh CSV (.csv) Option
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1184,7 +1355,8 @@ fun ExportPrintOptionsDialog(
                                 totalIncome = totalIncome,
                                 totalExpense = totalExpense,
                                 finalBalance = finalBalance,
-                                format = "CSV"
+                                format = "CSV",
+                                columnMode = exportPrefs.excelColumnMode
                             )
                             onExcelExport(result)
                             val toastText = if (isEn) "CSV (.csv) saved to ${result.savedPathDisplay}" else "CSV (.csv) disimpan di ${result.savedPathDisplay}"
@@ -1230,8 +1402,147 @@ fun ExportPrintOptionsDialog(
                         }
                     }
                 }
+                }
 
-                // 4. Cetak Laporan Option
+                // 3. Unduh Dokumen Word (.doc) Option
+                if (exportPrefs.showShareDoc) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val result = DocReportGenerator.exportAndSaveToDownloads(
+                                context = context,
+                                settings = settings,
+                                transactions = filteredTransactions,
+                                periodTitle = periodTitle,
+                                initialBalance = initialBalance,
+                                totalIncome = totalIncome,
+                                totalExpense = totalExpense,
+                                finalBalance = finalBalance,
+                                columnMode = exportPrefs.excelColumnMode
+                            )
+                            onDocExport(result)
+                            val toastText = if (isEn) "Word (.doc) saved to ${result.savedPathDisplay}" else "Dokumen (.doc) disimpan di ${result.savedPathDisplay}"
+                            Toast.makeText(context, toastText, Toast.LENGTH_LONG).show()
+                            onStatusMessage("DOC: ${result.savedPathDisplay}")
+                            onDismiss()
+                        }
+                        .testTag("dialog_btn_unduh_doc"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF1D4ED8).copy(alpha = 0.16f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Description,
+                                contentDescription = null,
+                                tint = Color(0xFF1D4ED8),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (isEn) "Download Word Document (.doc)" else "Unduh Dokumen Word (.doc)",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = if (isEn) "Professional bordered table layout matching Excel"
+                                else "Dokumen Word bertabel rapi serapi Excel dengan saldo otomatis",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                }
+
+                // 4. Gambar Infografis (.png) Option
+                if (exportPrefs.showShareImage) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            try {
+                                val imageFile = ReportImageGenerator.saveReportImage(
+                                    context = context,
+                                    settings = settings,
+                                    transactions = filteredTransactions,
+                                    periodTitle = periodTitle,
+                                    initialBalance = initialBalance,
+                                    totalIncome = totalIncome,
+                                    totalExpense = totalExpense,
+                                    finalBalance = finalBalance
+                                )
+                                val caption = "📊 *LAPORAN KAS: ${settings.groupName}*\n" +
+                                    "Periode: $periodTitle\n" +
+                                    "Saldo Awal: ${CurrencyHelper.format(initialBalance, curr)}\n" +
+                                    "Pemasukan: +${CurrencyHelper.format(totalIncome, curr)}\n" +
+                                    "Pengeluaran: -${CurrencyHelper.format(totalExpense, curr)}\n" +
+                                    "Saldo Akhir: *${CurrencyHelper.format(finalBalance, curr)}*"
+                                ReportImageGenerator.shareReportImage(context, imageFile, caption)
+                                onStatusMessage(
+                                    if (isEn) "Infographic image generated and ready to share!"
+                                    else "Gambar infografis laporan siap dibagikan!"
+                                )
+                                onDismiss()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        .testTag("dialog_btn_unduh_image"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF1B5E20).copy(alpha = 0.16f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Image,
+                                contentDescription = null,
+                                tint = Color(0xFF1B5E20),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (isEn) "Save / Share Infographic Image (.png)" else "Simpan / Bagikan Gambar Laporan (.png)",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = LanguageHelper.getString("share_img_desc", lang),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                }
+
+                // 5. Cetak Laporan Option
+                if (exportPrefs.showSharePdf) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1321,6 +1632,7 @@ fun ExportPrintOptionsDialog(
                             )
                         }
                     }
+                }
                 }
             }
         },

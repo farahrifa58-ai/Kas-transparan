@@ -237,3 +237,12 @@ fun accentAbout(): SectionAccent = if (isAppLightTheme) {
 } else {
     SectionAccent(tint = Color(0xFFCBD5E1), container = Color(0xFF233040))
 }
+
+@Composable
+@ReadOnlyComposable
+fun accentExportCustomization(): SectionAccent = if (isAppLightTheme) {
+    SectionAccent(tint = Color(0xFF0F6B5B), container = Color(0xFFD9F3ED))
+} else {
+    SectionAccent(tint = Color(0xFF5EEAD4), container = Color(0xFF123832))
+}
+

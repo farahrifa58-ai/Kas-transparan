@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.AppSettings
 import com.example.data.model.AuditLog
+import com.example.data.model.ExportPreferences
 import com.example.data.model.PublicAuthRequiredException
 import com.example.data.model.PublicKasUiState
 import com.example.data.model.Transaction
@@ -28,6 +29,7 @@ enum class PeriodFilter {
 data class KasUiState(
     val transactions: List<Transaction> = emptyList(),
     val settings: AppSettings = AppSettings(),
+    val exportPreferences: ExportPreferences = ExportPreferences(),
     val auditLogs: List<AuditLog> = emptyList(),
     val selectedPeriod: PeriodFilter = PeriodFilter.THIS_MONTH,
     val customStartDate: String = "",
@@ -73,6 +75,10 @@ class KasViewModel(
         .catch { emit(emptyList()) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val exportPreferences: StateFlow<ExportPreferences> = repository.observeExportPreferences()
+        .catch { emit(ExportPreferences()) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ExportPreferences())
+
     val isPublishingPublic: StateFlow<Boolean> = _isPublishingPublic.asStateFlow()
 
     val uiState: StateFlow<KasUiState> = combine(
@@ -86,7 +92,8 @@ class KasViewModel(
         _feedbackMessage,
         _isLoading,
         _isPublishingPublic,
-        _linkedTreasurerEmail
+        _linkedTreasurerEmail,
+        exportPreferences
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
         val txs = args[0] as List<Transaction>
@@ -101,10 +108,12 @@ class KasViewModel(
         val loading = args[8] as Boolean
         val publishingPublic = args[9] as Boolean
         val linkedEmail = args[10] as String?
+        val currentExportPrefs = args[11] as ExportPreferences
 
         KasUiState(
             transactions = txs,
             settings = currentSettings,
+            exportPreferences = currentExportPrefs,
             auditLogs = logs,
             selectedPeriod = period,
             customStartDate = _customStartDate.value,
@@ -118,6 +127,15 @@ class KasViewModel(
             userFeedbackMessage = feedback
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), KasUiState())
+
+    fun updateExportPreferences(newPrefs: ExportPreferences): Boolean {
+        if (newPrefs.activeCount == 0) {
+            _feedbackMessage.value = "Minimal 1 opsi ekspor harus tetap aktif"
+            return false
+        }
+        repository.saveExportPreferences(newPrefs)
+        return true
+    }
 
     fun refreshAuthStatus() {
         _linkedTreasurerEmail.value = repository.getSignedInTreasurerEmail()

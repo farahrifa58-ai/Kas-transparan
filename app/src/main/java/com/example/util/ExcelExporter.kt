@@ -9,6 +9,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import com.example.data.model.AppSettings
+import com.example.data.model.ExcelColumnMode
 import com.example.data.model.Transaction
 import java.io.File
 import java.io.FileInputStream
@@ -19,6 +20,8 @@ import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 data class ExcelExportResult(
     val success: Boolean,
@@ -29,11 +32,21 @@ data class ExcelExportResult(
     val errorMessage: String? = null
 )
 
+internal data class ExportRowWithBalance(
+    val transaction: Transaction,
+    val incomeAmount: Long,
+    val expenseAmount: Long,
+    val runningBalance: Long
+)
+
 object ExcelExporter {
 
+    private const val XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    private const val CSV_MIME = "text/csv"
+
     /**
-     * Exports transactions to Excel (.xls) or CSV (.csv) and saves directly into the phone's public Download folder.
-     * @param format "XLS" for styled XML Spreadsheet (native columns in Google Sheets & MS Excel), or "CSV" for comma-delimited.
+     * Exports transactions to genuine Excel (.xlsx) or CSV (.csv) and saves directly into the phone's public Download folder.
+     * Supports both COMPLETE and COMPACT (7 columns + running balance) column modes.
      */
     fun exportAndSaveToDownloads(
         context: Context,
@@ -44,7 +57,8 @@ object ExcelExporter {
         totalIncome: Long,
         totalExpense: Long,
         finalBalance: Long,
-        format: String = "XLS"
+        format: String = "XLSX",
+        columnMode: ExcelColumnMode = ExcelColumnMode.COMPLETE
     ): ExcelExportResult {
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
         val cleanGroup = settings.groupName
@@ -52,22 +66,41 @@ object ExcelExporter {
             .take(15)
             .ifBlank { "Kas" }
 
-        val isXls = format.equals("XLS", ignoreCase = true)
-        val fileExt = if (isXls) "xls" else "csv"
-        val mimeType = if (isXls) "application/vnd.ms-excel" else "text/csv"
+        val isExcel = !format.equals("CSV", ignoreCase = true)
+        val fileExt = if (isExcel) "xlsx" else "csv"
+        val mimeType = if (isExcel) XLSX_MIME else CSV_MIME
         val fileName = "Laporan_Kas_${cleanGroup}_$timeStamp.$fileExt"
 
-        // 1. Write to internal cache first
         val exportDir = File(context.cacheDir, "reports")
         if (!exportDir.exists()) exportDir.mkdirs()
         val cachedFile = File(exportDir, fileName)
 
         try {
             FileOutputStream(cachedFile).use { os ->
-                if (isXls) {
-                    writeSpreadsheetXmlContent(os, settings, transactions, periodTitle, initialBalance, totalIncome, totalExpense, finalBalance)
+                if (isExcel) {
+                    writeXlsxContent(
+                        outputStream = os,
+                        settings = settings,
+                        transactions = transactions,
+                        periodTitle = periodTitle,
+                        initialBalance = initialBalance,
+                        totalIncome = totalIncome,
+                        totalExpense = totalExpense,
+                        finalBalance = finalBalance,
+                        columnMode = columnMode
+                    )
                 } else {
-                    writeCsvContent(os, settings, transactions, periodTitle, initialBalance, totalIncome, totalExpense, finalBalance)
+                    writeCsvContent(
+                        outputStream = os,
+                        settings = settings,
+                        transactions = transactions,
+                        periodTitle = periodTitle,
+                        initialBalance = initialBalance,
+                        totalIncome = totalIncome,
+                        totalExpense = totalExpense,
+                        finalBalance = finalBalance,
+                        columnMode = columnMode
+                    )
                 }
             }
         } catch (e: Exception) {
@@ -82,7 +115,6 @@ object ExcelExporter {
         var publicUri: Uri? = null
         var displayLocation = "Download/$fileName"
 
-        // 2. Save directly to public Downloads folder
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val contentValues = ContentValues().apply {
@@ -94,8 +126,8 @@ object ExcelExporter {
                 val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
                 if (uri != null) {
                     resolver.openOutputStream(uri)?.use { os ->
-                        FileInputStream(cachedFile).use { `is` ->
-                            `is`.copyTo(os)
+                        FileInputStream(cachedFile).use { input ->
+                            input.copyTo(os)
                         }
                     }
                     publicUri = uri
@@ -105,20 +137,20 @@ object ExcelExporter {
                 val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 if (!downloadsDir.exists()) downloadsDir.mkdirs()
                 val publicFile = File(downloadsDir, fileName)
-                FileInputStream(cachedFile).use { `is` ->
+                FileInputStream(cachedFile).use { input ->
                     FileOutputStream(publicFile).use { os ->
-                        `is`.copyTo(os)
+                        input.copyTo(os)
                     }
                 }
                 displayLocation = publicFile.absolutePath
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             displayLocation = "Internal Storage ($fileName)"
         }
 
         val shareUri = try {
             FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", cachedFile)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             publicUri
         }
 
@@ -132,8 +164,37 @@ object ExcelExporter {
     }
 
     /**
-     * Writes standard RFC-4180 comma-delimited CSV with UTF-8 BOM so mobile apps separate columns cleanly.
+     * Sorts transactions chronologically ASCENDING (oldest -> newest) and computes
+     * automatic cumulative running balance starting from [initialBalance].
+     * Guarantees the last row's runningBalance equals Final Balance (Saldo Akhir).
      */
+    internal fun prepareChronologicalRows(
+        transactions: List<Transaction>,
+        initialBalance: Long,
+        onlyActive: Boolean
+    ): List<ExportRowWithBalance> {
+        val sorted = transactions
+            .let { list -> if (onlyActive) list.filter { it.status == "ACTIVE" } else list }
+            .sortedWith(
+                compareBy<Transaction> { it.date }
+                    .thenBy { it.createdAt?.toDate()?.time ?: 0L }
+            )
+
+        var runningBalance = initialBalance
+        return sorted.map { tx ->
+            val isActive = tx.status == "ACTIVE"
+            val incVal = if (tx.type == "INCOME" && isActive) tx.amount else 0L
+            val expVal = if (tx.type == "EXPENSE" && isActive) tx.amount else 0L
+            runningBalance = runningBalance + incVal - expVal
+            ExportRowWithBalance(
+                transaction = tx,
+                incomeAmount = incVal,
+                expenseAmount = expVal,
+                runningBalance = runningBalance
+            )
+        }
+    }
+
     private fun writeCsvContent(
         outputStream: OutputStream,
         settings: AppSettings,
@@ -142,65 +203,87 @@ object ExcelExporter {
         initialBalance: Long,
         totalIncome: Long,
         totalExpense: Long,
-        finalBalance: Long
+        finalBalance: Long,
+        columnMode: ExcelColumnMode
     ) {
+        val isCompact = columnMode == ExcelColumnMode.COMPACT
+        val rows = prepareChronologicalRows(transactions, initialBalance, onlyActive = isCompact)
+        val timeSdf = SimpleDateFormat("HH:mm", Locale.getDefault())
+
         OutputStreamWriter(outputStream, StandardCharsets.UTF_8).use { writer ->
-            // Write UTF-8 BOM so Google Sheets, Excel & WPS recognize UTF-8 characters and columns
             writer.write("\uFEFF")
 
-            writer.write("LAPORAN KEUANGAN KAS TRANSPARAN\n")
+            writer.write("LAPORAN KAS TRANSPARAN\n")
             writer.write("Organisasi / Kelompok,${escapeCsv(settings.groupName)}\n")
             writer.write("Admin / Pengelola,${escapeCsv(settings.adminName)}\n")
             writer.write("Periode Laporan,${escapeCsv(periodTitle)}\n")
-            val printDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+            val printDate = SimpleDateFormat("dd MMMM yyyy HH:mm:ss", Locale("id", "ID")).format(Date())
             writer.write("Tanggal Dibuat,${escapeCsv(printDate)}\n")
-            writer.write("Mata Uang,${settings.currencyCode}\n\n")
+            writer.write("Mata Uang,${escapeCsv(settings.currencyCode)}\n\n")
 
             writer.write("RINGKASAN SALDO KAS\n")
-            writer.write("Saldo Awal,${initialBalance}\n")
-            writer.write("Total Pemasukan,${totalIncome}\n")
-            writer.write("Total Pengeluaran,${totalExpense}\n")
-            writer.write("Saldo Akhir (Saldo Awal + Masuk - Keluar),${finalBalance}\n\n")
+            writer.write("Saldo Awal,$initialBalance\n")
+            writer.write("Total Pemasukan,$totalIncome\n")
+            writer.write("Total Pengeluaran,$totalExpense\n")
+            writer.write("Saldo Akhir,$finalBalance\n\n")
 
-            // Headers: Comma separated so mobile Excel / Sheets display distinct columns A to K!
-            writer.write("No,Tanggal,Jam Input,Jenis Transaksi,Nama / Sumber,Kategori,Metode Pembayaran,Pemasukan,Pengeluaran,Status,Keterangan Catatan\n")
+            if (isCompact) {
+                writer.write("No,Tanggal & Waktu,Jenis Transaksi,Pemasukan,Pengeluaran,Jumlah Saldo,Catatan\n")
+                rows.forEachIndexed { index, item ->
+                    val tx = item.transaction
+                    val inputTime = tx.createdAt?.toDate()?.let { timeSdf.format(it) } ?: ""
+                    val dateTimeText = if (inputTime.isNotBlank()) "${tx.date} $inputTime" else tx.date
+                    val jenis = if (tx.type == "INCOME") "Pemasukan" else "Pengeluaran"
+                    val noteText = tx.description.ifBlank { tx.title }
 
-            // Sort chronologically ascending: oldest at top, newer transactions downwards
-            val chronologicalTransactions = transactions.sortedWith(
-                compareBy<Transaction> { it.date }
-                    .thenBy { it.createdAt?.toDate()?.time ?: 0L }
-            )
+                    val row = listOf(
+                        (index + 1).toString(),
+                        escapeCsv(dateTimeText),
+                        jenis,
+                        item.incomeAmount.toString(),
+                        item.expenseAmount.toString(),
+                        item.runningBalance.toString(),
+                        escapeCsv(noteText)
+                    ).joinToString(",")
+                    writer.write(row + "\n")
+                }
+            } else {
+                writer.write("No,Tanggal,Jam Input,Jenis Transaksi,Nama / Sumber,Kategori,Metode Pembayaran,Pemasukan,Pengeluaran,Jumlah Saldo,Status,Keterangan Catatan\n")
+                rows.forEachIndexed { index, item ->
+                    val tx = item.transaction
+                    val inputTime = tx.createdAt?.toDate()?.let { timeSdf.format(it) } ?: "-"
+                    val jenis = if (tx.type == "INCOME") "Pemasukan" else "Pengeluaran"
+                    val statusText = if (tx.status == "ACTIVE") "Aktif" else "Dibatalkan"
 
-            val timeSdf = SimpleDateFormat("HH:mm", Locale.getDefault())
-            chronologicalTransactions.forEachIndexed { index, tx ->
-                val incomeVal = if (tx.type == "INCOME" && tx.status == "ACTIVE") tx.amount.toString() else "0"
-                val expenseVal = if (tx.type == "EXPENSE" && tx.status == "ACTIVE") tx.amount.toString() else "0"
-                val inputTime = tx.createdAt?.toDate()?.let { timeSdf.format(it) } ?: "-"
-
-                val row = listOf(
-                    (index + 1).toString(),
-                    escapeCsv(tx.date),
-                    escapeCsv(inputTime),
-                    if (tx.type == "INCOME") "Pemasukan" else "Pengeluaran",
-                    escapeCsv(tx.title),
-                    escapeCsv(tx.category),
-                    escapeCsv(tx.paymentMethod),
-                    incomeVal,
-                    expenseVal,
-                    if (tx.status == "ACTIVE") "Aktif" else "Dibatalkan (Void)",
-                    escapeCsv(tx.description)
-                ).joinToString(",")
-                writer.write(row + "\n")
+                    val row = listOf(
+                        (index + 1).toString(),
+                        escapeCsv(tx.date),
+                        escapeCsv(inputTime),
+                        jenis,
+                        escapeCsv(tx.title),
+                        escapeCsv(tx.category),
+                        escapeCsv(tx.paymentMethod.ifBlank { "Tunai" }),
+                        item.incomeAmount.toString(),
+                        item.expenseAmount.toString(),
+                        item.runningBalance.toString(),
+                        statusText,
+                        escapeCsv(tx.description)
+                    ).joinToString(",")
+                    writer.write(row + "\n")
+                }
             }
         }
     }
 
     /**
-     * Writes genuine SpreadsheetML (XML Spreadsheet 2003) with .xls extension.
-     * Natively supported by Google Sheets, Microsoft Excel (mobile & desktop), and WPS Office.
-     * Guarantees separate columns, bold green header styling, explicit column widths, and proper cell types!
+     * Generates a genuine OOXML .xlsx workbook with:
+     * - Styled kop header (Rows 1..6)
+     * - Ringkasan Saldo Kas box (Rows 8..12, numeric format #,##0)
+     * - Dark emerald table header (#0F6B5B, Row 14)
+     * - Chronological transactions with auto-computed running balance (Rows 15+)
+     * - Auto-adjusted column widths calculated from actual cell lengths so nothing is cut off on mobile
      */
-    private fun writeSpreadsheetXmlContent(
+    internal fun writeXlsxContent(
         outputStream: OutputStream,
         settings: AppSettings,
         transactions: List<Transaction>,
@@ -208,242 +291,260 @@ object ExcelExporter {
         initialBalance: Long,
         totalIncome: Long,
         totalExpense: Long,
-        finalBalance: Long
+        finalBalance: Long,
+        columnMode: ExcelColumnMode
     ) {
-        OutputStreamWriter(outputStream, StandardCharsets.UTF_8).use { writer ->
-            writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-            writer.write("<?mso-application progid=\"Excel.Sheet\"?>\n")
-            writer.write("<Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\"\n")
-            writer.write(" xmlns:o=\"urn:schemas-microsoft-com:office:office\"\n")
-            writer.write(" xmlns:x=\"urn:schemas-microsoft-com:office:excel\"\n")
-            writer.write(" xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\"\n")
-            writer.write(" xmlns:html=\"http://www.w3.org/TR/REC-html40\">\n")
+        val isCompact = columnMode == ExcelColumnMode.COMPACT
+        val rows = prepareChronologicalRows(transactions, initialBalance, onlyActive = isCompact)
+        val timeSdf = SimpleDateFormat("HH:mm", Locale.getDefault())
+        val printDate = SimpleDateFormat("dd MMMM yyyy HH:mm:ss", Locale("id", "ID")).format(Date())
 
-            // Styles
-            writer.write(" <Styles>\n")
-            writer.write("  <Style ss:ID=\"Default\" ss:Name=\"Normal\">\n")
-            writer.write("   <Alignment ss:Vertical=\"Center\"/>\n")
-            writer.write("   <Font ss:FontName=\"Arial\" ss:Size=\"10\" ss:Color=\"#000000\"/>\n")
-            writer.write("  </Style>\n")
-
-            // App Title Style
-            writer.write("  <Style ss:ID=\"AppTitle\">\n")
-            writer.write("   <Alignment ss:Vertical=\"Center\"/>\n")
-            writer.write("   <Font ss:FontName=\"Arial\" ss:Size=\"14\" ss:Bold=\"1\" ss:Color=\"#1B5E20\"/>\n")
-            writer.write("  </Style>\n")
-
-            // Meta Label Style
-            writer.write("  <Style ss:ID=\"MetaLabel\">\n")
-            writer.write("   <Alignment ss:Vertical=\"Center\"/>\n")
-            writer.write("   <Font ss:FontName=\"Arial\" ss:Size=\"10\" ss:Bold=\"1\" ss:Color=\"#333333\"/>\n")
-            writer.write("  </Style>\n")
-
-            // Table Header Style (Emerald Green with White Text)
-            writer.write("  <Style ss:ID=\"HeaderStyle\">\n")
-            writer.write("   <Alignment ss:Horizontal=\"Center\" ss:Vertical=\"Center\"/>\n")
-            writer.write("   <Borders>\n")
-            writer.write("    <Border ss:Position=\"Bottom\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#0D3813\"/>\n")
-            writer.write("    <Border ss:Position=\"Top\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#0D3813\"/>\n")
-            writer.write("    <Border ss:Position=\"Left\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#0D3813\"/>\n")
-            writer.write("    <Border ss:Position=\"Right\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#0D3813\"/>\n")
-            writer.write("   </Borders>\n")
-            writer.write("   <Font ss:FontName=\"Arial\" ss:Size=\"10\" ss:Bold=\"1\" ss:Color=\"#FFFFFF\"/>\n")
-            writer.write("   <Interior ss:Color=\"#1B5E20\" ss:Pattern=\"Solid\"/>\n")
-            writer.write("  </Style>\n")
-
-            // Data Cell Bordered
-            writer.write("  <Style ss:ID=\"DataCell\">\n")
-            writer.write("   <Alignment ss:Vertical=\"Center\"/>\n")
-            writer.write("   <Borders>\n")
-            writer.write("    <Border ss:Position=\"Bottom\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#E0E0E0\"/>\n")
-            writer.write("    <Border ss:Position=\"Top\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#E0E0E0\"/>\n")
-            writer.write("    <Border ss:Position=\"Left\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#E0E0E0\"/>\n")
-            writer.write("    <Border ss:Position=\"Right\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#E0E0E0\"/>\n")
-            writer.write("   </Borders>\n")
-            writer.write("   <Font ss:FontName=\"Arial\" ss:Size=\"10\"/>\n")
-            writer.write("  </Style>\n")
-
-            // Center Data Cell
-            writer.write("  <Style ss:ID=\"DataCellCenter\">\n")
-            writer.write("   <Alignment ss:Horizontal=\"Center\" ss:Vertical=\"Center\"/>\n")
-            writer.write("   <Borders>\n")
-            writer.write("    <Border ss:Position=\"Bottom\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#E0E0E0\"/>\n")
-            writer.write("    <Border ss:Position=\"Top\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#E0E0E0\"/>\n")
-            writer.write("    <Border ss:Position=\"Left\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#E0E0E0\"/>\n")
-            writer.write("    <Border ss:Position=\"Right\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#E0E0E0\"/>\n")
-            writer.write("   </Borders>\n")
-            writer.write("   <Font ss:FontName=\"Arial\" ss:Size=\"10\"/>\n")
-            writer.write("  </Style>\n")
-
-            // Income Amount Style (Green Text)
-            writer.write("  <Style ss:ID=\"IncomeStyle\">\n")
-            writer.write("   <Alignment ss:Horizontal=\"Right\" ss:Vertical=\"Center\"/>\n")
-            writer.write("   <Borders>\n")
-            writer.write("    <Border ss:Position=\"Bottom\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#E0E0E0\"/>\n")
-            writer.write("    <Border ss:Position=\"Top\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#E0E0E0\"/>\n")
-            writer.write("    <Border ss:Position=\"Left\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#E0E0E0\"/>\n")
-            writer.write("    <Border ss:Position=\"Right\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#E0E0E0\"/>\n")
-            writer.write("   </Borders>\n")
-            writer.write("   <Font ss:FontName=\"Arial\" ss:Size=\"10\" ss:Bold=\"1\" ss:Color=\"#2E7D32\"/>\n")
-            writer.write("   <NumberFormat ss:Format=\"#,##0\"/>\n")
-            writer.write("  </Style>\n")
-
-            // Expense Amount Style (Red Text)
-            writer.write("  <Style ss:ID=\"ExpenseStyle\">\n")
-            writer.write("   <Alignment ss:Horizontal=\"Right\" ss:Vertical=\"Center\"/>\n")
-            writer.write("   <Borders>\n")
-            writer.write("    <Border ss:Position=\"Bottom\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#E0E0E0\"/>\n")
-            writer.write("    <Border ss:Position=\"Top\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#E0E0E0\"/>\n")
-            writer.write("    <Border ss:Position=\"Left\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#E0E0E0\"/>\n")
-            writer.write("    <Border ss:Position=\"Right\" ss:LineStyle=\"Continuous\" ss:Weight=\"1\" ss:Color=\"#E0E0E0\"/>\n")
-            writer.write("   </Borders>\n")
-            writer.write("   <Font ss:FontName=\"Arial\" ss:Size=\"10\" ss:Bold=\"1\" ss:Color=\"#C62828\"/>\n")
-            writer.write("   <NumberFormat ss:Format=\"#,##0\"/>\n")
-            writer.write("  </Style>\n")
-
-            // Summary Card Style
-            writer.write("  <Style ss:ID=\"SummaryStyle\">\n")
-            writer.write("   <Alignment ss:Vertical=\"Center\"/>\n")
-            writer.write("   <Font ss:FontName=\"Arial\" ss:Size=\"10\" ss:Bold=\"1\" ss:Color=\"#1B5E20\"/>\n")
-            writer.write("   <Interior ss:Color=\"#F1F8E9\" ss:Pattern=\"Solid\"/>\n")
-            writer.write("  </Style>\n")
-
-            writer.write("  <Style ss:ID=\"SummaryNumStyle\">\n")
-            writer.write("   <Alignment ss:Horizontal=\"Right\" ss:Vertical=\"Center\"/>\n")
-            writer.write("   <Font ss:FontName=\"Arial\" ss:Size=\"10\" ss:Bold=\"1\" ss:Color=\"#1B5E20\"/>\n")
-            writer.write("   <Interior ss:Color=\"#F1F8E9\" ss:Pattern=\"Solid\"/>\n")
-            writer.write("   <NumberFormat ss:Format=\"#,##0\"/>\n")
-            writer.write("  </Style>\n")
-
-            writer.write(" </Styles>\n")
-
-            // Worksheet & Table definition
-            writer.write(" <Worksheet ss:Name=\"Laporan Kas\">\n")
-            writer.write("  <Table>\n")
-
-            // Explicit column widths so columns are perfectly proportioned!
-            writer.write("   <Column ss:Width=\"35\"/>\n")  // Col A: No
-            writer.write("   <Column ss:Width=\"85\"/>\n")  // Col B: Tanggal
-            writer.write("   <Column ss:Width=\"65\"/>\n")  // Col C: Jam Input
-            writer.write("   <Column ss:Width=\"90\"/>\n")  // Col D: Jenis
-            writer.write("   <Column ss:Width=\"170\"/>\n") // Col E: Nama / Sumber
-            writer.write("   <Column ss:Width=\"110\"/>\n") // Col F: Kategori
-            writer.write("   <Column ss:Width=\"90\"/>\n")  // Col G: Metode
-            writer.write("   <Column ss:Width=\"100\"/>\n") // Col H: Pemasukan
-            writer.write("   <Column ss:Width=\"100\"/>\n") // Col I: Pengeluaran
-            writer.write("   <Column ss:Width=\"75\"/>\n")  // Col J: Status
-            writer.write("   <Column ss:Width=\"240\"/>\n") // Col K: Catatan Keterangan
-
-            // Row 1: Title
-            writer.write("   <Row ss:Height=\"24\">\n")
-            writer.write("    <Cell ss:MergeAcross=\"3\" ss:StyleID=\"AppTitle\"><Data ss:Type=\"String\">LAPORAN KAS TRANSPARAN</Data></Cell>\n")
-            writer.write("   </Row>\n")
-
-            // Metadata rows
-            writeXmlMetaRow(writer, "Organisasi / Kelompok", settings.groupName)
-            writeXmlMetaRow(writer, "Admin / Pengelola", settings.adminName)
-            writeXmlMetaRow(writer, "Periode Laporan", periodTitle)
-            val printDate = SimpleDateFormat("dd MMMM yyyy HH:mm:ss", Locale.getDefault()).format(Date())
-            writeXmlMetaRow(writer, "Tanggal Dibuat", printDate)
-            writeXmlMetaRow(writer, "Mata Uang", settings.currencyCode)
-
-            // Blank row
-            writer.write("   <Row ss:Height=\"10\"/>\n")
-
-            // Summary Table
-            writer.write("   <Row ss:Height=\"20\">\n")
-            writer.write("    <Cell ss:MergeAcross=\"2\" ss:StyleID=\"SummaryStyle\"><Data ss:Type=\"String\">RINGKASAN SALDO KAS</Data></Cell>\n")
-            writer.write("   </Row>\n")
-            writeXmlSummaryRow(writer, "Saldo Awal", initialBalance)
-            writeXmlSummaryRow(writer, "Total Pemasukan", totalIncome)
-            writeXmlSummaryRow(writer, "Total Pengeluaran", totalExpense)
-            writeXmlSummaryRow(writer, "Saldo Akhir", finalBalance)
-
-            // Blank row
-            writer.write("   <Row ss:Height=\"12\"/>\n")
-
-            // Table Header: Row 15
-            writer.write("   <Row ss:Height=\"24\">\n")
-            val headers = listOf(
+        val headers = if (isCompact) {
+            listOf("No", "Tanggal & Waktu", "Jenis Transaksi", "Pemasukan", "Pengeluaran", "Jumlah Saldo", "Catatan")
+        } else {
+            listOf(
                 "No", "Tanggal", "Jam Input", "Jenis Transaksi",
                 "Nama / Sumber", "Kategori", "Metode Pembayaran",
-                "Pemasukan", "Pengeluaran", "Status", "Keterangan Catatan"
+                "Pemasukan", "Pengeluaran", "Jumlah Saldo", "Status", "Keterangan Catatan"
             )
-            for (h in headers) {
-                writer.write("    <Cell ss:StyleID=\"HeaderStyle\"><Data ss:Type=\"String\">$h</Data></Cell>\n")
+        }
+
+        val colCount = headers.size
+        val maxLens = IntArray(colCount) { idx -> headers[idx].length }
+
+        fun trackWidth(colIdx: Int, text: String) {
+            if (colIdx in 0 until colCount) {
+                if (text.length > maxLens[colIdx]) {
+                    maxLens[colIdx] = text.length
+                }
             }
-            writer.write("   </Row>\n")
+        }
 
-            // Sort chronologically ascending: oldest transactions at top (Row 15, No 1), newer transactions downwards
-            val chronologicalTransactions = transactions.sortedWith(
-                compareBy<Transaction> { it.date }
-                    .thenBy { it.createdAt?.toDate()?.time ?: 0L }
-            )
+        fun formatNumLen(value: Long): Int {
+            val absStr = kotlin.math.abs(value).toString()
+            val commas = (absStr.length - 1) / 3
+            return absStr.length + commas + (if (value < 0) 1 else 0)
+        }
 
-            // Transactions rows
-            val timeSdf = SimpleDateFormat("HH:mm", Locale.getDefault())
-            chronologicalTransactions.forEachIndexed { index, tx ->
-                val isIncome = tx.type == "INCOME" && tx.status == "ACTIVE"
-                val isExpense = tx.type == "EXPENSE" && tx.status == "ACTIVE"
-                val inputTime = tx.createdAt?.toDate()?.let { timeSdf.format(it) } ?: "-"
+        // Track metadata & summary cell widths in Col A (0) and Col B (1)
+        val metaEntries = listOf(
+            "Organisasi / Kelompok" to settings.groupName.ifBlank { "Kas Transparan" },
+            "Admin / Pengelola" to settings.adminName.ifBlank { "Admin Kas" },
+            "Periode Laporan" to periodTitle,
+            "Tanggal Dibuat" to printDate,
+            "Mata Uang" to settings.currencyCode.ifBlank { "IDR" }
+        )
+        metaEntries.forEach { (label, value) ->
+            trackWidth(0, label)
+            trackWidth(1, value)
+        }
+        val summaryEntries = listOf(
+            "Saldo Awal" to initialBalance,
+            "Total Pemasukan" to totalIncome,
+            "Total Pengeluaran" to totalExpense,
+            "Saldo Akhir" to finalBalance
+        )
+        trackWidth(0, "RINGKASAN SALDO KAS")
+        summaryEntries.forEach { (label, amount) ->
+            trackWidth(0, label)
+            val numLen = formatNumLen(amount)
+            if (numLen > maxLens[1]) maxLens[1] = numLen
+        }
 
-                writer.write("   <Row ss:Height=\"20\">\n")
-                // No
-                writer.write("    <Cell ss:StyleID=\"DataCellCenter\"><Data ss:Type=\"Number\">${index + 1}</Data></Cell>\n")
-                // Tanggal
-                writer.write("    <Cell ss:StyleID=\"DataCellCenter\"><Data ss:Type=\"String\">${escapeXml(tx.date)}</Data></Cell>\n")
-                // Jam
-                writer.write("    <Cell ss:StyleID=\"DataCellCenter\"><Data ss:Type=\"String\">${escapeXml(inputTime)}</Data></Cell>\n")
-                // Jenis
-                val jenis = if (tx.type == "INCOME") "Pemasukan" else "Pengeluaran"
-                writer.write("    <Cell ss:StyleID=\"DataCell\"><Data ss:Type=\"String\">$jenis</Data></Cell>\n")
-                // Nama
-                writer.write("    <Cell ss:StyleID=\"DataCell\"><Data ss:Type=\"String\">${escapeXml(tx.title)}</Data></Cell>\n")
-                // Kategori
-                writer.write("    <Cell ss:StyleID=\"DataCell\"><Data ss:Type=\"String\">${escapeXml(tx.category)}</Data></Cell>\n")
-                // Metode
-                writer.write("    <Cell ss:StyleID=\"DataCell\"><Data ss:Type=\"String\">${escapeXml(tx.paymentMethod.ifBlank { "Tunai" })}</Data></Cell>\n")
-                // Pemasukan
-                val incVal = if (isIncome) tx.amount else 0L
-                writer.write("    <Cell ss:StyleID=\"IncomeStyle\"><Data ss:Type=\"Number\">$incVal</Data></Cell>\n")
-                // Pengeluaran
-                val expVal = if (isExpense) tx.amount else 0L
-                writer.write("    <Cell ss:StyleID=\"ExpenseStyle\"><Data ss:Type=\"Number\">$expVal</Data></Cell>\n")
-                // Status
+        // Pre-compute transaction cell representations & track column widths
+        val sheetXml = StringBuilder(16384)
+        val rowsXml = StringBuilder(12288)
+
+        // Row 1: LAPORAN KAS TRANSPARAN (A1:C1 merged)
+        rowsXml.append("  <row r=\"1\" ht=\"24\" customHeight=\"1\">\n")
+        rowsXml.append(inlineStrCell(0, 1, 1, "LAPORAN KAS TRANSPARAN"))
+        rowsXml.append(emptyStyledCell(1, 1, 1))
+        rowsXml.append(emptyStyledCell(2, 1, 1))
+        rowsXml.append("  </row>\n")
+
+        // Rows 2..6: Metadata
+        metaEntries.forEachIndexed { idx, (label, value) ->
+            val r = 2 + idx
+            rowsXml.append("  <row r=\"$r\" ht=\"19\" customHeight=\"1\">\n")
+            rowsXml.append(inlineStrCell(0, r, 2, label))
+            rowsXml.append(inlineStrCell(1, r, 3, value))
+            rowsXml.append("  </row>\n")
+        }
+
+        // Row 7: Blank spacer
+        rowsXml.append("  <row r=\"7\" ht=\"10\" customHeight=\"1\"/>\n")
+
+        // Row 8: RINGKASAN SALDO KAS
+        rowsXml.append("  <row r=\"8\" ht=\"20\" customHeight=\"1\">\n")
+        rowsXml.append(inlineStrCell(0, 8, 4, "RINGKASAN SALDO KAS"))
+        rowsXml.append(emptyStyledCell(1, 8, 4))
+        rowsXml.append("  </row>\n")
+
+        // Rows 9..12: Summary balances
+        summaryEntries.forEachIndexed { idx, (label, amount) ->
+            val r = 9 + idx
+            rowsXml.append("  <row r=\"$r\" ht=\"19\" customHeight=\"1\">\n")
+            rowsXml.append(inlineStrCell(0, r, 4, label))
+            rowsXml.append(numericCell(1, r, 5, amount))
+            rowsXml.append("  </row>\n")
+        }
+
+        // Row 13: Blank spacer
+        rowsXml.append("  <row r=\"13\" ht=\"10\" customHeight=\"1\"/>\n")
+
+        // Row 14: Table Header
+        rowsXml.append("  <row r=\"14\" ht=\"24\" customHeight=\"1\">\n")
+        headers.forEachIndexed { colIdx, h ->
+            rowsXml.append(inlineStrCell(colIdx, 14, 6, h))
+        }
+        rowsXml.append("  </row>\n")
+
+        // Rows 15+: Transactions
+        rows.forEachIndexed { index, item ->
+            val r = 15 + index
+            val tx = item.transaction
+            val rowNo = (index + 1).toLong()
+            val inputTime = tx.createdAt?.toDate()?.let { timeSdf.format(it) } ?: ""
+            val jenis = if (tx.type == "INCOME") "Pemasukan" else "Pengeluaran"
+
+            rowsXml.append("  <row r=\"$r\" ht=\"20\" customHeight=\"1\">\n")
+            if (isCompact) {
+                val dateTimeText = if (inputTime.isNotBlank()) "${tx.date} $inputTime" else tx.date
+                val noteText = tx.description.ifBlank { tx.title }
+
+                trackWidth(0, rowNo.toString())
+                trackWidth(1, dateTimeText)
+                trackWidth(2, jenis)
+                if (formatNumLen(item.incomeAmount) > maxLens[3]) maxLens[3] = formatNumLen(item.incomeAmount)
+                if (formatNumLen(item.expenseAmount) > maxLens[4]) maxLens[4] = formatNumLen(item.expenseAmount)
+                if (formatNumLen(item.runningBalance) > maxLens[5]) maxLens[5] = formatNumLen(item.runningBalance)
+                trackWidth(6, noteText)
+
+                rowsXml.append(numericCell(0, r, 8, rowNo))
+                rowsXml.append(inlineStrCell(1, r, 8, dateTimeText))
+                rowsXml.append(inlineStrCell(2, r, 7, jenis))
+                rowsXml.append(numericCell(3, r, if (item.incomeAmount > 0L) 9 else 12, item.incomeAmount))
+                rowsXml.append(numericCell(4, r, if (item.expenseAmount > 0L) 10 else 12, item.expenseAmount))
+                rowsXml.append(numericCell(5, r, 11, item.runningBalance))
+                rowsXml.append(inlineStrCell(6, r, 7, noteText))
+            } else {
+                val jamText = inputTime.ifBlank { "-" }
+                val metode = tx.paymentMethod.ifBlank { "Tunai" }
                 val statusText = if (tx.status == "ACTIVE") "Aktif" else "Dibatalkan"
-                writer.write("    <Cell ss:StyleID=\"DataCellCenter\"><Data ss:Type=\"String\">$statusText</Data></Cell>\n")
-                // Catatan Keterangan
-                writer.write("    <Cell ss:StyleID=\"DataCell\"><Data ss:Type=\"String\">${escapeXml(tx.description)}</Data></Cell>\n")
-                writer.write("   </Row>\n")
-            }
 
-            writer.write("  </Table>\n")
-            writer.write(" </Worksheet>\n")
-            writer.write("</Workbook>\n")
+                trackWidth(0, rowNo.toString())
+                trackWidth(1, tx.date)
+                trackWidth(2, jamText)
+                trackWidth(3, jenis)
+                trackWidth(4, tx.title)
+                trackWidth(5, tx.category)
+                trackWidth(6, metode)
+                if (formatNumLen(item.incomeAmount) > maxLens[7]) maxLens[7] = formatNumLen(item.incomeAmount)
+                if (formatNumLen(item.expenseAmount) > maxLens[8]) maxLens[8] = formatNumLen(item.expenseAmount)
+                if (formatNumLen(item.runningBalance) > maxLens[9]) maxLens[9] = formatNumLen(item.runningBalance)
+                trackWidth(10, statusText)
+                trackWidth(11, tx.description)
+
+                rowsXml.append(numericCell(0, r, 8, rowNo))
+                rowsXml.append(inlineStrCell(1, r, 8, tx.date))
+                rowsXml.append(inlineStrCell(2, r, 8, jamText))
+                rowsXml.append(inlineStrCell(3, r, 7, jenis))
+                rowsXml.append(inlineStrCell(4, r, 7, tx.title))
+                rowsXml.append(inlineStrCell(5, r, 7, tx.category))
+                rowsXml.append(inlineStrCell(6, r, 7, metode))
+                rowsXml.append(numericCell(7, r, if (item.incomeAmount > 0L) 9 else 12, item.incomeAmount))
+                rowsXml.append(numericCell(8, r, if (item.expenseAmount > 0L) 10 else 12, item.expenseAmount))
+                rowsXml.append(numericCell(9, r, 11, item.runningBalance))
+                rowsXml.append(inlineStrCell(10, r, 8, statusText))
+                rowsXml.append(inlineStrCell(11, r, 7, tx.description))
+            }
+            rowsXml.append("  </row>\n")
+        }
+
+        // Build complete sheet1.xml with auto-computed <cols>
+        sheetXml.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n")
+        sheetXml.append("<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">\n")
+        sheetXml.append(" <cols>\n")
+        for (c in 0 until colCount) {
+            val minW = when {
+                c == 0 -> 22.0 // accommodates "Organisasi / Kelompok" in A2 cleanly
+                isCompact && c == 1 -> 24.0
+                isCompact && c in 3..5 -> 15.0
+                isCompact && c == 6 -> 28.0
+                !isCompact && c in 7..9 -> 15.0
+                else -> 12.0
+            }
+            val computed = (maxLens[c] + 4.0).coerceAtLeast(minW).coerceAtMost(58.0)
+            val colOneBased = c + 1
+            sheetXml.append("  <col min=\"$colOneBased\" max=\"$colOneBased\" width=\"${String.format(Locale.US, "%.1f", computed)}\" customWidth=\"1\"/>\n")
+        }
+        sheetXml.append(" </cols>\n")
+        sheetXml.append(" <sheetData>\n")
+        sheetXml.append(rowsXml)
+        sheetXml.append(" </sheetData>\n")
+        sheetXml.append(" <mergeCells count=\"1\">\n")
+        sheetXml.append("  <mergeCell ref=\"A1:C1\"/>\n")
+        sheetXml.append(" </mergeCells>\n")
+        sheetXml.append("</worksheet>\n")
+
+        ZipOutputStream(outputStream).use { zip ->
+            writeZipEntry(zip, "[Content_Types].xml", CONTENT_TYPES_XML)
+            writeZipEntry(zip, "_rels/.rels", ROOT_RELS_XML)
+            writeZipEntry(zip, "xl/_rels/workbook.xml.rels", WORKBOOK_RELS_XML)
+            writeZipEntry(zip, "xl/workbook.xml", WORKBOOK_XML)
+            writeZipEntry(zip, "xl/styles.xml", STYLES_XML)
+            writeZipEntry(zip, "xl/worksheets/sheet1.xml", sheetXml.toString())
         }
     }
 
-    private fun writeXmlMetaRow(writer: OutputStreamWriter, label: String, value: String) {
-        writer.write("   <Row ss:Height=\"18\">\n")
-        writer.write("    <Cell ss:MergeAcross=\"1\" ss:StyleID=\"MetaLabel\"><Data ss:Type=\"String\">${escapeXml(label)}</Data></Cell>\n")
-        writer.write("    <Cell ss:MergeAcross=\"2\" ss:StyleID=\"DataCell\"><Data ss:Type=\"String\">${escapeXml(value)}</Data></Cell>\n")
-        writer.write("   </Row>\n")
+    private fun writeZipEntry(zip: ZipOutputStream, name: String, content: String) {
+        zip.putNextEntry(ZipEntry(name))
+        zip.write(content.toByteArray(StandardCharsets.UTF_8))
+        zip.closeEntry()
     }
 
-    private fun writeXmlSummaryRow(writer: OutputStreamWriter, label: String, amount: Long) {
-        writer.write("   <Row ss:Height=\"18\">\n")
-        writer.write("    <Cell ss:MergeAcross=\"1\" ss:StyleID=\"SummaryStyle\"><Data ss:Type=\"String\">${escapeXml(label)}</Data></Cell>\n")
-        writer.write("    <Cell ss:MergeAcross=\"1\" ss:StyleID=\"SummaryNumStyle\"><Data ss:Type=\"Number\">$amount</Data></Cell>\n")
-        writer.write("   </Row>\n")
+    private fun colLetter(colIndex: Int): String {
+        var idx = colIndex
+        val sb = StringBuilder()
+        while (idx >= 0) {
+            sb.insert(0, ('A' + (idx % 26)))
+            idx = (idx / 26) - 1
+        }
+        return sb.toString()
+    }
+
+    private fun inlineStrCell(colIdx: Int, row: Int, styleId: Int, text: String): String {
+        val ref = "${colLetter(colIdx)}$row"
+        val escaped = escapeXml(text)
+        return "   <c r=\"$ref\" s=\"$styleId\" t=\"inlineStr\"><is><t xml:space=\"preserve\">$escaped</t></is></c>\n"
+    }
+
+    private fun numericCell(colIdx: Int, row: Int, styleId: Int, value: Long): String {
+        val ref = "${colLetter(colIdx)}$row"
+        return "   <c r=\"$ref\" s=\"$styleId\"><v>$value</v></c>\n"
+    }
+
+    private fun emptyStyledCell(colIdx: Int, row: Int, styleId: Int): String {
+        val ref = "${colLetter(colIdx)}$row"
+        return "   <c r=\"$ref\" s=\"$styleId\"/>\n"
     }
 
     private fun escapeXml(value: String): String {
-        return value
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\"", "&quot;")
-            .replace("'", "&apos;")
+        val sb = StringBuilder(value.length)
+        for (ch in value) {
+            val code = ch.code
+            val validXml = code == 0x9 || code == 0xA || code == 0xD || (code >= 0x20 && code <= 0xD7FF) || (code >= 0xE000 && code <= 0xFFFD)
+            if (!validXml) continue
+            when (ch) {
+                '&' -> sb.append("&amp;")
+                '<' -> sb.append("&lt;")
+                '>' -> sb.append("&gt;")
+                '"' -> sb.append("&quot;")
+                '\'' -> sb.append("&apos;")
+                else -> sb.append(ch)
+            }
+        }
+        return sb.toString()
     }
 
     private fun escapeCsv(value: String): String {
@@ -455,13 +556,13 @@ object ExcelExporter {
         }
     }
 
-    /**
-     * Helper to open the exported file or share it directly
-     */
     fun openOrShareCsv(context: Context, result: ExcelExportResult) {
         val uri = result.contentUri ?: return
-        val isXls = result.fileName.endsWith(".xls", ignoreCase = true)
-        val mimeType = if (isXls) "application/vnd.ms-excel" else "text/csv"
+        val mimeType = when {
+            result.fileName.endsWith(".xlsx", ignoreCase = true) -> XLSX_MIME
+            result.fileName.endsWith(".xls", ignoreCase = true) -> "application/vnd.ms-excel"
+            else -> CSV_MIME
+        }
 
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, mimeType)
@@ -472,7 +573,7 @@ object ExcelExporter {
             val chooser = Intent.createChooser(intent, "Buka Laporan Excel")
             chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(chooser)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = mimeType
                 putExtra(Intent.EXTRA_STREAM, uri)
@@ -486,7 +587,6 @@ object ExcelExporter {
         }
     }
 
-    // Backwards-compatible overload
     fun exportToCsv(
         context: Context,
         settings: AppSettings,
@@ -506,8 +606,100 @@ object ExcelExporter {
             totalIncome = totalIncome,
             totalExpense = totalExpense,
             finalBalance = finalBalance,
-            format = "XLS"
+            format = "XLSX"
         )
         return result.file ?: File(context.cacheDir, result.fileName)
     }
+
+    private const val CONTENT_TYPES_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+ <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+ <Default Extension="xml" ContentType="application/xml"/>
+ <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+ <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+ <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>
+"""
+
+    private const val ROOT_RELS_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+ <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>
+"""
+
+    private const val WORKBOOK_RELS_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+ <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+ <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>
+"""
+
+    private const val WORKBOOK_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+ <sheets>
+  <sheet name="Laporan Kas" sheetId="1" r:id="rId1"/>
+ </sheets>
+</workbook>
+"""
+
+    private const val STYLES_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+ <numFmts count="1">
+  <numFmt numFmtId="164" formatCode="#,##0"/>
+ </numFmts>
+ <fonts count="7">
+  <font><sz val="10"/><color rgb="FF111827"/><name val="Arial"/></font>
+  <font><b/><sz val="13"/><color rgb="FF0F6B5B"/><name val="Arial"/></font>
+  <font><b/><sz val="10"/><color rgb="FF1F2937"/><name val="Arial"/></font>
+  <font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font>
+  <font><b/><sz val="10"/><color rgb="FF15803D"/><name val="Arial"/></font>
+  <font><b/><sz val="10"/><color rgb="FFC62828"/><name val="Arial"/></font>
+  <font><b/><sz val="10"/><color rgb="FF0F6B5B"/><name val="Arial"/></font>
+ </fonts>
+ <fills count="4">
+  <fill><patternFill patternType="none"/></fill>
+  <fill><patternFill patternType="gray125"/></fill>
+  <fill><patternFill patternType="solid"><fgColor rgb="FFD9EAD3"/></patternFill></fill>
+  <fill><patternFill patternType="solid"><fgColor rgb="FF0F6B5B"/></patternFill></fill>
+ </fills>
+ <borders count="3">
+  <border><left/><right/><top/><bottom/><diagonal/></border>
+  <border>
+   <left style="thin"><color rgb="FFCBD5E1"/></left>
+   <right style="thin"><color rgb="FFCBD5E1"/></right>
+   <top style="thin"><color rgb="FFCBD5E1"/></top>
+   <bottom style="thin"><color rgb="FFCBD5E1"/></bottom>
+   <diagonal/>
+  </border>
+  <border>
+   <left style="thin"><color rgb="FF0A4A3F"/></left>
+   <right style="thin"><color rgb="FF0A4A3F"/></right>
+   <top style="thin"><color rgb="FF0A4A3F"/></top>
+   <bottom style="thin"><color rgb="FF0A4A3F"/></bottom>
+   <diagonal/>
+  </border>
+ </borders>
+ <cellStyleXfs count="1">
+  <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
+ </cellStyleXfs>
+ <cellXfs count="13">
+  <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf>
+  <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+  <xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+  <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+  <xf numFmtId="0" fontId="2" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+  <xf numFmtId="164" fontId="2" fillId="2" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+  <xf numFmtId="0" fontId="3" fillId="3" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+  <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+  <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+  <xf numFmtId="164" fontId="4" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+  <xf numFmtId="164" fontId="5" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+  <xf numFmtId="164" fontId="6" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+  <xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+ </cellXfs>
+ <cellStyles count="1">
+  <cellStyle name="Normal" xfId="0" builtinId="0"/>
+ </cellStyles>
+</styleSheet>
+"""
 }

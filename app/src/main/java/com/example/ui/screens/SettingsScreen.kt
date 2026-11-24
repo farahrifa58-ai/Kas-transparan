@@ -5,6 +5,9 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -38,15 +41,20 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -65,8 +73,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -91,6 +101,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.example.data.model.AppSettings
+import com.example.data.model.ExcelColumnMode
+import com.example.data.model.ExportPreferences
 import com.example.data.model.PublicKasHelper
 import com.example.data.repository.LicenseRepository
 import com.example.ui.KasUiState
@@ -110,6 +122,7 @@ import com.example.ui.theme.accentAppearance
 import com.example.ui.theme.accentBackup
 import com.example.ui.theme.accentCurrency
 import com.example.ui.theme.accentDomain
+import com.example.ui.theme.accentExportCustomization
 import com.example.ui.theme.accentProfile
 import com.example.ui.theme.accentPublicReport
 import com.example.ui.theme.accentTutorial
@@ -126,6 +139,7 @@ private enum class SettingsModalSection {
     PUBLIC_REPORT,
     DOMAIN,
     CURRENCY,
+    EXPORT_CUSTOMIZATION,
     BACKUP,
     TUTORIAL,
     ABOUT
@@ -207,9 +221,12 @@ fun SettingsScreen(
     val publicAccent = accentPublicReport()
     val domainAccent = accentDomain()
     val currencyAccent = accentCurrency()
+    val exportCustomizationAccent = accentExportCustomization()
     val backupAccent = accentBackup()
     val tutorialAccent = accentTutorial()
     val aboutAccent = accentAbout()
+
+    val exportPrefs = state.exportPreferences
 
     val openLabel = LanguageHelper.getString("btn_open", selectedLanguage)
     val saveAndCloseLabel = if (isEn) "Save & Close" else "Simpan & Tutup"
@@ -391,7 +408,30 @@ fun SettingsScreen(
                     modifier = Modifier.testTag("settings_currency_card")
                 )
 
-                // 6. CADANGAN & PEMULIHAN (GOOGLE DRIVE) -> Modal Popup
+                // 6. KUSTOMISASI EKSPOR & BAGIKAN -> Modal Popup
+                val excelModeShortLabel = if (exportPrefs.excelColumnMode == ExcelColumnMode.COMPACT) {
+                    if (isEn) "Compact (7 Cols)" else "Ringkas (7 Kolom)"
+                } else {
+                    if (isEn) "Complete" else "Lengkap"
+                }
+                SettingsModalCard(
+                    title = if (isEn) "Customize Export & Share" else "Kustomisasi Ekspor & Bagikan",
+                    subtitle = if (exportPrefs.showShareExcel) {
+                        "${exportPrefs.activeCount}/4 ${if (isEn) "active" else "aktif"} • Excel $excelModeShortLabel"
+                    } else {
+                        "${exportPrefs.activeCount}/4 ${if (isEn) "active formats" else "opsi ekspor aktif"}"
+                    },
+                    icon = Icons.Default.Share,
+                    accent = exportCustomizationAccent,
+                    actionLabel = openLabel,
+                    badgeText = "${exportPrefs.activeCount}/4",
+                    badgeColor = exportCustomizationAccent.tint,
+                    badgeContainerColor = exportCustomizationAccent.container,
+                    onClick = { activeModal = SettingsModalSection.EXPORT_CUSTOMIZATION },
+                    modifier = Modifier.testTag("settings_export_customization_card")
+                )
+
+                // 7. CADANGAN & PEMULIHAN (GOOGLE DRIVE) -> Modal Popup
                 SettingsModalCard(
                     title = LanguageHelper.getString("backup_drive_title", selectedLanguage),
                     subtitle = lastBackupDisplay,
@@ -865,6 +905,147 @@ fun SettingsScreen(
                         }
                     }
                 }
+            }
+        }
+
+        SettingsModalSection.EXPORT_CUSTOMIZATION -> {
+            val minOneWarning = if (isEn) {
+                "At least 1 export option must stay active."
+            } else {
+                "Minimal 1 opsi ekspor harus tetap aktif."
+            }
+
+            fun applyExportUpdate(candidate: ExportPreferences) {
+                if (!viewModel.updateExportPreferences(candidate)) {
+                    Toast.makeText(context, minOneWarning, Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            SettingsPopupDialog(
+                title = if (isEn) "Customize Export & Share" else "Kustomisasi Ekspor & Bagikan",
+                subtitle = if (isEn) "Show/hide report buttons & choose Excel columns" else "Atur tombol ekspor Laporan & mode kolom Excel",
+                icon = Icons.Default.Share,
+                accent = exportCustomizationAccent,
+                primaryButtonText = saveAndCloseLabel,
+                showCheckIcon = true,
+                onDismiss = { activeModal = null },
+                onPrimaryAction = {
+                    Toast.makeText(
+                        context,
+                        if (isEn) "Export settings saved" else "Pengaturan ekspor & bagikan disimpan",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    activeModal = null
+                }
+            ) {
+                Text(
+                    text = if (isEn)
+                        "Choose which export buttons appear on the Report page (at least 1 option remains active)."
+                    else
+                        "Pilih format ekspor yang tampil di halaman Laporan (minimal 1 opsi tetap aktif).",
+                    style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                ExportToggleRow(
+                    title = if (isEn) "Show Share Image" else "Tampilkan Share Image",
+                    description = if (isEn) "Infographic image (.png/.jpg) button in Report" else "Tombol ekspor gambar laporan (.png/.jpg)",
+                    icon = Icons.Default.Image,
+                    tint = Color(0xFF1B5E20),
+                    checked = exportPrefs.showShareImage,
+                    onCheckedChange = { checked ->
+                        applyExportUpdate(exportPrefs.copy(showShareImage = checked))
+                    },
+                    testTag = "switch_share_image"
+                )
+
+                ExportToggleRow(
+                    title = if (isEn) "Show Share PDF" else "Tampilkan Share PDF",
+                    description = if (isEn) "PDF document (.pdf) & print button in Report" else "Tombol ekspor dokumen PDF & cetak laporan",
+                    icon = Icons.Default.PictureAsPdf,
+                    tint = Color(0xFFC62828),
+                    checked = exportPrefs.showSharePdf,
+                    onCheckedChange = { checked ->
+                        applyExportUpdate(exportPrefs.copy(showSharePdf = checked))
+                    },
+                    testTag = "switch_share_pdf"
+                )
+
+                ExportToggleRow(
+                    title = if (isEn) "Show Share Excel (.xlsx)" else "Tampilkan Share Excel (.xlsx)",
+                    description = if (isEn) "Excel workbook (.xlsx/.csv) with running balance" else "Tombol ekspor spreadsheet Excel (.xlsx) dengan saldo berjalan",
+                    icon = Icons.Default.TableChart,
+                    tint = exportCustomizationAccent.tint,
+                    checked = exportPrefs.showShareExcel,
+                    onCheckedChange = { checked ->
+                        applyExportUpdate(exportPrefs.copy(showShareExcel = checked))
+                    },
+                    testTag = "switch_share_excel"
+                )
+
+                AnimatedVisibility(
+                    visible = exportPrefs.showShareExcel,
+                    enter = expandVertically(),
+                    exit = shrinkVertically()
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = exportCustomizationAccent.container.copy(alpha = 0.45f),
+                        border = BorderStroke(1.dp, exportCustomizationAccent.tint.copy(alpha = 0.25f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = if (isEn) "Excel Column Mode" else "Mode Kolom Excel",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                color = exportCustomizationAccent.tint
+                            )
+
+                            ExcelColumnModeRadioOption(
+                                title = if (isEn) "Complete Excel (Default)" else "Excel Lengkap (Default)",
+                                description = if (isEn)
+                                    "Displays all detail columns (Date, Time, Type, Title, Category, Method, Income, Expense, Balance, Status, Notes)"
+                                else
+                                    "Menampilkan seluruh kolom detail (Tanggal, Jam, Jenis, Nama, Kategori, Metode, Pemasukan, Pengeluaran, Jumlah Saldo, Status, Catatan)",
+                                selected = exportPrefs.excelColumnMode == ExcelColumnMode.COMPLETE,
+                                accentTint = exportCustomizationAccent.tint,
+                                onClick = {
+                                    applyExportUpdate(exportPrefs.copy(excelColumnMode = ExcelColumnMode.COMPLETE))
+                                },
+                                testTag = "radio_excel_complete"
+                            )
+
+                            ExcelColumnModeRadioOption(
+                                title = if (isEn) "Compact Excel (7 Columns + Running Balance)" else "Excel Ringkas (7 Kolom + Saldo Berjalan)",
+                                description = if (isEn)
+                                    "7 clean columns: No, Date & Time, Type, Income, Expense, Running Balance, Notes"
+                                else
+                                    "7 kolom padat: No, Tanggal & Waktu, Jenis Transaksi, Pemasukan, Pengeluaran, Jumlah Saldo, Catatan",
+                                selected = exportPrefs.excelColumnMode == ExcelColumnMode.COMPACT,
+                                accentTint = exportCustomizationAccent.tint,
+                                onClick = {
+                                    applyExportUpdate(exportPrefs.copy(excelColumnMode = ExcelColumnMode.COMPACT))
+                                },
+                                testTag = "radio_excel_compact"
+                            )
+                        }
+                    }
+                }
+
+                ExportToggleRow(
+                    title = if (isEn) "Show Share Document (.doc)" else "Tampilkan Share Dokumen (.doc)",
+                    description = if (isEn) "Formatted Word document (.doc) with Excel-style table" else "Tombol ekspor Dokumen Word (.doc) bertabel rapi seperti Excel",
+                    icon = Icons.Default.Description,
+                    tint = Color(0xFF1D4ED8),
+                    checked = exportPrefs.showShareDoc,
+                    onCheckedChange = { checked ->
+                        applyExportUpdate(exportPrefs.copy(showShareDoc = checked))
+                    },
+                    testTag = "switch_share_doc"
+                )
             }
         }
 
@@ -1350,3 +1531,124 @@ fun LanguageSelectionDialog(
         }
     )
 }
+
+@Composable
+private fun ExportToggleRow(
+    title: String,
+    description: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tint: Color,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    testTag: String
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        border = BorderStroke(1.dp, SoftCardBorderColor.copy(alpha = 0.7f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(tint.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = tint,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.5.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                modifier = Modifier.testTag(testTag)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ExcelColumnModeRadioOption(
+    title: String,
+    description: String,
+    selected: Boolean,
+    accentTint: Color,
+    onClick: () -> Unit,
+    testTag: String
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+        border = BorderStroke(
+            width = if (selected) 1.5.dp else 1.dp,
+            color = if (selected) accentTint else SoftCardBorderColor
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .testTag(testTag)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            RadioButton(
+                selected = selected,
+                onClick = onClick,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.5.sp
+                    ),
+                    color = if (selected) accentTint else MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
