@@ -95,6 +95,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.example.data.model.AppSettings
 import com.example.data.model.PublicKasHelper
+import com.example.data.repository.LicenseRepository
 import com.example.ui.KasUiState
 import com.example.ui.KasViewModel
 import com.example.ui.components.ExpandableSettingsCard
@@ -1036,6 +1037,9 @@ fun SettingsScreen(
                 }
             },
             text = {
+                val licenseRepo = remember(context) { LicenseRepository.getInstance(context) }
+                val activeLicense = remember { licenseRepo.getLocalLicense() }
+                val currentDeviceId = remember { licenseRepo.getOrCreateDeviceId() }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         text = LanguageHelper.getString("app_desc", selectedLanguage),
@@ -1047,6 +1051,17 @@ fun SettingsScreen(
                     Text(text = LanguageHelper.getString("platform", selectedLanguage), style = MaterialTheme.typography.bodySmall)
                     Text(text = LanguageHelper.getString("release_year", selectedLanguage), style = MaterialTheme.typography.bodySmall)
                     Text(text = LanguageHelper.getString("copyright", selectedLanguage), style = MaterialTheme.typography.bodySmall)
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    Text(
+                        text = "Status Lisensi: ${if (activeLicense?.activated == true) "Aktif (${activeLicense.licenseCode})" else "Belum Aktif"}",
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = if (activeLicense?.activated == true) IncomeGreen else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "ID Perangkat: $currentDeviceId",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             },
             confirmButton = {

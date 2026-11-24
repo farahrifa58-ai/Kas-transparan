@@ -22,15 +22,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ReceiptLong
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Assessment
-import androidx.compose.material.icons.filled.Dashboard
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
+import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
+import androidx.compose.material.icons.outlined.Analytics
+import androidx.compose.material.icons.outlined.ArrowCircleDown
+import androidx.compose.material.icons.outlined.ArrowCircleUp
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.rounded.Analytics
+import androidx.compose.material.icons.rounded.ArrowCircleDown
+import androidx.compose.material.icons.rounded.ArrowCircleUp
+import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -68,16 +74,21 @@ import androidx.credentials.CredentialManager
 import com.example.data.model.AppSettings
 import com.example.data.model.PublicKasHelper
 import com.example.data.repository.KasRepository
+import com.example.data.repository.LicenseGateState
+import com.example.data.repository.LicenseRepository
 import com.example.ui.KasViewModel
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.ExpenseScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.IncomeScreen
+import com.example.ui.screens.LicenseActivationScreen
+import com.example.ui.screens.LicenseCheckingScreen
 import com.example.ui.screens.PublicReportScreen
 import com.example.ui.screens.ReportScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.signOutAdmin
 import com.example.ui.theme.KasTransparanTheme
+import com.example.ui.theme.SoftCardBorderColor
 import com.example.ui.theme.SoftTopBarColor
 import com.example.ui.theme.SoftTopBarContentColor
 import com.example.util.LanguageHelper
@@ -102,6 +113,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val repository = remember { KasRepository.getInstance(applicationContext) }
+            val licenseRepository = remember { LicenseRepository.getInstance(applicationContext) }
             val appSettings by repository.observeSettings("local_admin")
                 .collectAsState(initial = AppSettings())
             val themeMode = appSettings?.themeMode ?: "LIGHT"
@@ -110,7 +122,7 @@ class MainActivity : ComponentActivity() {
 
             KasTransparanTheme(themeMode = themeMode) {
                 if (incomingPublicId != null) {
-                    // Direct Read-Only Public Report mode (NO treasurer menus, NO edit/add/delete)
+                    // Direct Read-Only Public Report mode (NO license check, NO treasurer menus, NO edit/add/delete)
                     PublicReportScreen(
                         publicKasId = incomingPublicId,
                         repository = repository,
@@ -121,9 +133,27 @@ class MainActivity : ComponentActivity() {
                     )
                 } else {
                     var isSplashVisible by remember { mutableStateOf(true) }
+                    var licenseGateState by remember {
+                        val cached = licenseRepository.getLocalLicense()
+                        val currentDevId = licenseRepository.getOrCreateDeviceId()
+                        mutableStateOf<LicenseGateState>(
+                            if (cached != null && cached.activated && cached.deviceId.equals(currentDevId, ignoreCase = true)) {
+                                LicenseGateState.Activated(cached)
+                            } else {
+                                LicenseGateState.Checking
+                            }
+                        )
+                    }
+
                     LaunchedEffect(Unit) {
                         delay(1200L)
                         isSplashVisible = false
+                    }
+
+                    LaunchedEffect(Unit) {
+                        if (licenseGateState !is LicenseGateState.Activated) {
+                            licenseGateState = licenseRepository.checkOrAutoRestoreLicense()
+                        }
                     }
 
                     val splashAlpha by animateFloatAsState(
@@ -149,10 +179,27 @@ class MainActivity : ComponentActivity() {
                                     .fillMaxSize()
                                     .graphicsLayer { alpha = mainAlpha }
                             ) {
-                                AppMainContent(
-                                    userId = "local_admin",
-                                    onSignOut = {}
-                                )
+                                when (val gate = licenseGateState) {
+                                    is LicenseGateState.Checking -> {
+                                        LicenseCheckingScreen()
+                                    }
+                                    is LicenseGateState.Unlicensed -> {
+                                        LicenseActivationScreen(
+                                            deviceId = gate.deviceId,
+                                            licenseRepository = licenseRepository,
+                                            initialInfoMessage = gate.infoMessage,
+                                            onActivated = { activatedInfo ->
+                                                licenseGateState = LicenseGateState.Activated(activatedInfo)
+                                            }
+                                        )
+                                    }
+                                    is LicenseGateState.Activated -> {
+                                        AppMainContent(
+                                            userId = "local_admin",
+                                            onSignOut = {}
+                                        )
+                                    }
+                                }
                             }
                         }
 
@@ -335,7 +382,7 @@ fun AppMainContent(
                                 modifier = Modifier.testTag("top_settings_button")
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Settings,
+                                    imageVector = Icons.Rounded.Tune,
                                     contentDescription = LanguageHelper.getString("settings_title", lang),
                                     tint = SoftTopBarContentColor
                                 )
@@ -347,120 +394,187 @@ fun AppMainContent(
                     )
                 },
                 bottomBar = {
-                    NavigationBar(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 6.dp,
-                        modifier = Modifier.testTag("main_bottom_nav")
-                    ) {
-                        NavigationBarItem(
-                            selected = currentScreen == MainNavScreen.DASHBOARD,
-                            onClick = { currentScreen = MainNavScreen.DASHBOARD },
-                            icon = { Icon(Icons.Default.Dashboard, contentDescription = null) },
-                            label = {
-                                Text(
-                                    text = LanguageHelper.getString("nav_dashboard", lang),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            },
-                            alwaysShowLabel = true,
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                            ),
-                            modifier = Modifier.testTag("nav_item_dashboard")
+                    val unselectedTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                    Column {
+                        HorizontalDivider(
+                            thickness = 1.dp,
+                            color = SoftCardBorderColor.copy(alpha = 0.85f)
                         )
+                        NavigationBar(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 0.dp,
+                            modifier = Modifier.testTag("main_bottom_nav")
+                        ) {
+                            val isDash = currentScreen == MainNavScreen.DASHBOARD
+                            NavigationBarItem(
+                                selected = isDash,
+                                onClick = { currentScreen = MainNavScreen.DASHBOARD },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (isDash) Icons.Rounded.GridView else Icons.Outlined.GridView,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(23.dp)
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        text = LanguageHelper.getString("nav_dashboard", lang),
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontSize = 10.5.sp,
+                                            fontWeight = if (isDash) FontWeight.Bold else FontWeight.Medium
+                                        ),
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
+                                alwaysShowLabel = true,
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    unselectedIconColor = unselectedTint,
+                                    unselectedTextColor = unselectedTint,
+                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)
+                                ),
+                                modifier = Modifier.testTag("nav_item_dashboard")
+                            )
 
-                        NavigationBarItem(
-                            selected = currentScreen == MainNavScreen.INCOME,
-                            onClick = { currentScreen = MainNavScreen.INCOME },
-                            icon = { Icon(Icons.Default.ArrowDownward, contentDescription = null) },
-                            label = {
-                                Text(
-                                    text = LanguageHelper.getString("nav_income", lang),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            },
-                            alwaysShowLabel = true,
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = com.example.ui.theme.IncomeGreen,
-                                selectedTextColor = com.example.ui.theme.IncomeGreen,
-                                indicatorColor = com.example.ui.theme.SoftSuccessBg
-                            ),
-                            modifier = Modifier.testTag("nav_item_income")
-                        )
+                            val isIncome = currentScreen == MainNavScreen.INCOME
+                            NavigationBarItem(
+                                selected = isIncome,
+                                onClick = { currentScreen = MainNavScreen.INCOME },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (isIncome) Icons.Rounded.ArrowCircleDown else Icons.Outlined.ArrowCircleDown,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(23.dp)
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        text = LanguageHelper.getString("nav_income", lang),
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontSize = 10.5.sp,
+                                            fontWeight = if (isIncome) FontWeight.Bold else FontWeight.Medium
+                                        ),
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
+                                alwaysShowLabel = true,
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = com.example.ui.theme.IncomeGreen,
+                                    selectedTextColor = com.example.ui.theme.IncomeGreen,
+                                    unselectedIconColor = unselectedTint,
+                                    unselectedTextColor = unselectedTint,
+                                    indicatorColor = com.example.ui.theme.SoftSuccessBg
+                                ),
+                                modifier = Modifier.testTag("nav_item_income")
+                            )
 
-                        NavigationBarItem(
-                            selected = currentScreen == MainNavScreen.EXPENSE,
-                            onClick = { currentScreen = MainNavScreen.EXPENSE },
-                            icon = { Icon(Icons.Default.ArrowUpward, contentDescription = null) },
-                            label = {
-                                Text(
-                                    text = LanguageHelper.getString("nav_expense", lang),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            },
-                            alwaysShowLabel = true,
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = com.example.ui.theme.ExpenseRed,
-                                selectedTextColor = com.example.ui.theme.ExpenseRed,
-                                indicatorColor = com.example.ui.theme.SoftDangerBg
-                            ),
-                            modifier = Modifier.testTag("nav_item_expense")
-                        )
+                            val isExpense = currentScreen == MainNavScreen.EXPENSE
+                            NavigationBarItem(
+                                selected = isExpense,
+                                onClick = { currentScreen = MainNavScreen.EXPENSE },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (isExpense) Icons.Rounded.ArrowCircleUp else Icons.Outlined.ArrowCircleUp,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(23.dp)
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        text = LanguageHelper.getString("nav_expense", lang),
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontSize = 10.5.sp,
+                                            fontWeight = if (isExpense) FontWeight.Bold else FontWeight.Medium
+                                        ),
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
+                                alwaysShowLabel = true,
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = com.example.ui.theme.ExpenseRed,
+                                    selectedTextColor = com.example.ui.theme.ExpenseRed,
+                                    unselectedIconColor = unselectedTint,
+                                    unselectedTextColor = unselectedTint,
+                                    indicatorColor = com.example.ui.theme.SoftDangerBg
+                                ),
+                                modifier = Modifier.testTag("nav_item_expense")
+                            )
 
-                        NavigationBarItem(
-                            selected = currentScreen == MainNavScreen.HISTORY,
-                            onClick = { currentScreen = MainNavScreen.HISTORY },
-                            icon = { Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null) },
-                            label = {
-                                Text(
-                                    text = LanguageHelper.getString("nav_history", lang),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            },
-                            alwaysShowLabel = true,
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.secondary,
-                                selectedTextColor = MaterialTheme.colorScheme.secondary,
-                                indicatorColor = MaterialTheme.colorScheme.secondaryContainer
-                            ),
-                            modifier = Modifier.testTag("nav_item_history")
-                        )
+                            val isHistory = currentScreen == MainNavScreen.HISTORY
+                            NavigationBarItem(
+                                selected = isHistory,
+                                onClick = { currentScreen = MainNavScreen.HISTORY },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (isHistory) Icons.AutoMirrored.Rounded.ReceiptLong else Icons.AutoMirrored.Outlined.ReceiptLong,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(23.dp)
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        text = LanguageHelper.getString("nav_history", lang),
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontSize = 10.5.sp,
+                                            fontWeight = if (isHistory) FontWeight.Bold else FontWeight.Medium
+                                        ),
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
+                                alwaysShowLabel = true,
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.secondary,
+                                    selectedTextColor = MaterialTheme.colorScheme.secondary,
+                                    unselectedIconColor = unselectedTint,
+                                    unselectedTextColor = unselectedTint,
+                                    indicatorColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f)
+                                ),
+                                modifier = Modifier.testTag("nav_item_history")
+                            )
 
-                        NavigationBarItem(
-                            selected = currentScreen == MainNavScreen.REPORT,
-                            onClick = { currentScreen = MainNavScreen.REPORT },
-                            icon = { Icon(Icons.Default.Assessment, contentDescription = null) },
-                            label = {
-                                Text(
-                                    text = LanguageHelper.getString("nav_report", lang),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            },
-                            alwaysShowLabel = true,
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.tertiary,
-                                selectedTextColor = MaterialTheme.colorScheme.tertiary,
-                                indicatorColor = MaterialTheme.colorScheme.tertiaryContainer
-                            ),
-                            modifier = Modifier.testTag("nav_item_report")
-                        )
+                            val isReport = currentScreen == MainNavScreen.REPORT
+                            NavigationBarItem(
+                                selected = isReport,
+                                onClick = { currentScreen = MainNavScreen.REPORT },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (isReport) Icons.Rounded.Analytics else Icons.Outlined.Analytics,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(23.dp)
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        text = LanguageHelper.getString("nav_report", lang),
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontSize = 10.5.sp,
+                                            fontWeight = if (isReport) FontWeight.Bold else FontWeight.Medium
+                                        ),
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
+                                alwaysShowLabel = true,
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.tertiary,
+                                    selectedTextColor = MaterialTheme.colorScheme.tertiary,
+                                    unselectedIconColor = unselectedTint,
+                                    unselectedTextColor = unselectedTint,
+                                    indicatorColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.85f)
+                                ),
+                                modifier = Modifier.testTag("nav_item_report")
+                            )
+                        }
                     }
                 }
             ) { paddingValues ->
